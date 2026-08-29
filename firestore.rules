@@ -1,0 +1,225 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function userDoc(uid) {
+      return get(/databases/$(database)/documents/users/$(uid));
+    }
+
+    function myProfile() {
+      return userDoc(request.auth.uid);
+    }
+
+    function myChurchId() {
+      return signedIn() && myProfile().data.church_id is string
+        ? myProfile().data.church_id
+        : null;
+    }
+
+    function sameChurch(churchId) {
+      return signedIn() && churchId is string && churchId == myChurchId();
+    }
+
+    function isAdminForChurch(churchId) {
+      return sameChurch(churchId) && myProfile().data.is_admin == true;
+    }
+
+    function affectedOnly(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+
+    function validNewUser(userId) {
+      return isSelf(userId)
+        && request.resource.data.keys().hasOnly([
+          'name',
+          'email',
+          'roles',
+          'church_id',
+          'is_admin',
+          'created_at',
+          'fcmTokens',
+          'friendCode',
+          'friends'
+        ])
+        && request.resource.data.church_id == null
+        && request.resource.data.is_admin == false;
+    }
+
+    function selfProfileUpdate(userId) {
+      return isSelf(userId)
+        && affectedOnly(['name', 'email', 'roles', 'fcmTokens', 'friendCode', 'friends'])
+        && request.resource.data.church_id == resource.data.church_id
+        && request.resource.data.is_admin == resource.data.is_admin;
+    }
+
+    function selfJoinMinistry(userId) {
+      return isSelf(userId)
+        && affectedOnly(['church_id', 'is_admin'])
+        && resource.data.is_admin != true
+        && request.resource.data.is_admin == false
+        && request.resource.data.church_id is string;
+    }
+
+    function selfClaimCreatedMinistry(userId) {
+      return isSelf(userId)
+        && affectedOnly(['church_id', 'is_admin'])
+        && resource.data.is_admin != true
+        && request.resource.data.is_admin == true
+        && request.resource.data.church_id is string
+        && getAfter(/databases/$(database)/documents/ministries/$(request.resource.data.church_id)).data.admin_id == userId;
+    }
+
+    function adminChangesMember(userId) {
+      return signedIn()
+        && userId != request.auth.uid
+        && sameChurch(resource.data.church_id)
+        && isAdminForChurch(resource.data.church_id)
+        && affectedOnly(['church_id', 'is_admin'])
+        && (
+          (
+            request.resource.data.church_id == resource.data.church_id
+            && request.resource.data.is_admin is bool
+          )
+          || (
+            request.resource.data.church_id == null
+            && request.resource.data.is_admin == false
+          )
+        );
+    }
+
+    function mutualFriendUpdate(userId) {
+      return signedIn()
+        && userId != request.auth.uid
+        && affectedOnly(['friends'])
+        && request.auth.uid in request.resource.data.friends;
+    }
+
+    function canReadUser(userId) {
+      return isSelf(userId)
+        || sameChurch(resource.data.church_id)
+        || (signedIn() && resource.data.friendCode is string);
+    }
+
+    function validInviteCreate() {
+      return signedIn()
+        && request.resource.data.ministry_id is string
+        && request.resource.data.admin_id == request.auth.uid
+        && getAfter(/databases/$(database)/documents/ministries/$(request.resource.data.ministry_id)).data.admin_id == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'ministry_id',
+          'admin_id',
+          'created_at'
+        ]);
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && canReadUser(userId);
+      allow create: if validNewUser(userId);
+      allow update: if selfProfileUpdate(userId)
+        || selfJoinMinistry(userId)
+        || selfClaimCreatedMinistry(userId)
+        || adminChangesMember(userId)
+        || mutualFriendUpdate(userId);
+      allow delete: if false;
+
+      match /library/{songId} {
+        allow read, create, update, delete: if isSelf(userId);
+      }
+
+      match /played_history/{songId} {
+        allow read, create, update, delete: if isSelf(userId);
+      }
+    }
+
+    match /ministries/{ministryId} {
+      allow get: if signedIn()
+        && (
+          resource.data.admin_id == request.auth.uid
+          || sameChurch(ministryId)
+        );
+      allow list: if false;
+      allow create: if signedIn()
+        && request.resource.data.admin_id == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'name',
+          'invite_code',
+          'admin_id',
+          'created_at'
+        ]);
+      allow update: if isAdminForChurch(ministryId);
+      allow delete: if false;
+    }
+
+    match /ministry_invites/{inviteCode} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if validInviteCreate();
+      allow update: if signedIn()
+        && resource.data.ministry_id is string
+        && isAdminForChurch(resource.data.ministry_id)
+        && request.resource.data.ministry_id == resource.data.ministry_id
+        && request.resource.data.admin_id == resource.data.admin_id
+        && request.resource.data.keys().hasOnly([
+          'ministry_id',
+          'admin_id',
+          'created_at'
+        ]);
+      allow delete: if false;
+    }
+
+    match /schedules/{scheduleId} {
+      allow read: if sameChurch(resource.data.church_id);
+      allow create: if isAdminForChurch(request.resource.data.church_id);
+      allow update: if sameChurch(resource.data.church_id);
+      allow delete: if isAdminForChurch(resource.data.church_id);
+    }
+
+    match /setlists/{setlistId} {
+      allow read: if signedIn()
+        && (
+          resource.data.ownerId == request.auth.uid
+          || request.auth.uid in resource.data.sharedWith
+        );
+      allow create: if signedIn()
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if signedIn()
+        && (
+          resource.data.ownerId == request.auth.uid
+          || request.auth.uid in resource.data.sharedWith
+        );
+      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+    }
+
+    match /songs/{songId} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    match /global_cifras/{docId} {
+      allow read, create, update: if signedIn();
+      allow delete: if false;
+    }
+
+    match /cifras_globais/{docId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /artist_aliases/{docId} {
+      allow read, write: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

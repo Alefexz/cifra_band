@@ -43,3 +43,26 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Dependency directories
+node_modules/
+functions/node_modules/
+/functions/
+
+# Local secrets and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*serviceAccount*.json
+*serviceAccount*.json.*
+functions/.env
+functions/.env.*
+!functions/.env.example
+
+# Firebase local/runtime artifacts
+.firebase/
+.runtimeconfig.json
+firebase-debug.log
+firebase-debug.*.log
