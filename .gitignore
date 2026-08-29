@@ -48,6 +48,8 @@ app.*.map.json
 node_modules/
 functions/node_modules/
 /functions/
+/package.json
+/package-lock.json
 
 # Local secrets and credentials
 .env
