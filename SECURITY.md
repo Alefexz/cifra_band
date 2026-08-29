@@ -3,8 +3,9 @@
 ## Current boundaries
 
 - Firebase Admin credentials must never live in this repository.
+- Firebase client config files are intentionally ignored in this public repository.
 - Firestore client writes are constrained by `firestore.rules`.
-- Cloud Functions use the default Firebase Admin runtime credentials.
+- Push delivery is handled by a private Node.js API outside this Flutter repository.
 - Local emulator credentials should stay outside the project folder.
 
 ## Firestore authorization model
@@ -16,10 +17,17 @@
 - `setlists/{id}`: owners can create, edit, and delete; shared users can read.
 - `cifras_globais` and `artist_aliases`: client writes are blocked. Cloud Functions can still write through Firebase Admin.
 
+## GitHub hardening
+
+- Keep the repository private until Firebase API keys are rotated/restricted and App Check is enforced.
+- Do not commit `.env`, service account JSON files, Firebase generated client configs, keystores, signing keys, tokens, screenshots of dashboards, or Render environment values.
+- After accidental exposure, rewrite the repository history and rotate/restrict the exposed Firebase keys.
+- Enable GitHub secret scanning and Dependabot alerts in the repository settings.
+
 ## Required production follow-ups
 
-- Revoke any Firebase service account key that was ever stored inside the project folder.
+- Restrict Firebase Web/API keys by Android package name plus SHA certificate and iOS bundle ID.
+- Enable Firebase App Check for Firestore, Cloud Functions/API surfaces and other supported Firebase products.
+- Add server-side authentication and rate limiting to the Render notification API before opening broader testing.
 - Deploy Firestore rules with `firebase deploy --only firestore:rules`.
-- Add Firebase App Check before exposing production Cloud Functions publicly.
-- Move invite-code joins to a callable/authenticated Cloud Function when the backend is allowed to change.
-- Replace local emulator URLs in the app with environment-specific production URLs when screens/app wiring are allowed to change.
+- Move invite-code joins to a callable/authenticated backend flow when the backend is allowed to change.

@@ -51,6 +51,10 @@ functions/node_modules/
 /package.json
 /package-lock.json
 
+# Project maps generated locally
+/estrutura_projeto.txt
+/mapa_do_projeto.txt
+
 # Local secrets and credentials
 .env
 .env.*
@@ -59,6 +63,11 @@ functions/node_modules/
 *.pem
 *serviceAccount*.json
 *serviceAccount*.json.*
+/.firebaserc
+/firebase.json
+/lib/firebase_options.dart
+/android/app/google-services.json
+/ios/Runner/GoogleService-Info.plist
 functions/.env
 functions/.env.*
 !functions/.env.example

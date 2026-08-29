@@ -601,176 +601,193 @@ class _CifraScreenState extends State<CifraScreen> {
   Widget _buildTopControlBar() {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         color: const Color(0xFF1A1A24),
         borderRadius: BorderRadius.circular(100),
       ),
-      // ⚠️ ADICIONADO: Scroll Horizontal para a barra caber em telas pequenas
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-          children: [
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.remove, color: Colors.grey, size: 20),
-                  onPressed: _toneDown,
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.all(8),
-                ),
-                InkWell(
-                  onTap: _showToneSelector,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Text(
-                          'Tom',
-                          style: TextStyle(color: Colors.grey, fontSize: 10),
-                        ),
-                        Text(
-                          _currentPitch,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ],
+      child: Row(
+        children: [
+          Expanded(flex: 10, child: _buildToneControls()),
+          _buildControlDivider(),
+          Expanded(flex: 9, child: _buildFontControls()),
+          _buildControlDivider(),
+          Expanded(flex: 8, child: _buildScrollControls()),
+          _buildControlDivider(),
+          _buildCompactIconButton(
+            icon: Icons.settings_rounded,
+            onTap: _showSettingsPanel,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildToneControls() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildCompactIconButton(icon: Icons.remove_rounded, onTap: _toneDown),
+        Flexible(
+          child: InkWell(
+            onTap: _showToneSelector,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Tom',
+                    maxLines: 1,
+                    style: TextStyle(color: Colors.grey, fontSize: 9),
+                  ),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      _currentPitch,
+                      maxLines: 1,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
                     ),
                   ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.add, color: Colors.grey, size: 20),
-                  onPressed: _toneUp,
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.all(8),
-                ),
-              ],
+                ],
+              ),
             ),
+          ),
+        ),
+        _buildCompactIconButton(icon: Icons.add_rounded, onTap: _toneUp),
+      ],
+    );
+  }
 
-            Container(
-              width: 1,
-              height: 24,
-              color: Colors.white.withOpacity(0.1),
-              margin: const EdgeInsets.symmetric(horizontal: 8),
+  Widget _buildFontControls() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildCompactTextButton(
+          label: 'T-',
+          onTap: () =>
+              setState(() => _fontSize = (_fontSize - 1).clamp(12.0, 30.0)),
+        ),
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              '${_fontSize.toInt()}',
+              maxLines: 1,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
             ),
+          ),
+        ),
+        _buildCompactTextButton(
+          label: 'T+',
+          onTap: () =>
+              setState(() => _fontSize = (_fontSize + 1).clamp(12.0, 30.0)),
+        ),
+      ],
+    );
+  }
 
-            Row(
-              children: [
-                IconButton(
-                  icon: const Text(
-                    'T-',
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  onPressed: () => setState(
-                    () => _fontSize = (_fontSize - 1).clamp(12.0, 30.0),
-                  ),
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.all(8),
-                ),
-                Text(
-                  '${_fontSize.toInt()}',
-                  style: const TextStyle(
-                    color: Colors.white,
+  Widget _buildScrollControls() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _buildCompactIconButton(
+          icon: _isPlaying
+              ? Icons.pause_circle_filled_rounded
+              : Icons.play_circle_fill_rounded,
+          color: _isPlaying ? Colors.orangeAccent : Colors.grey,
+          size: 27,
+          onTap: _toggleAutoScroll,
+        ),
+        Flexible(
+          child: InkWell(
+            onTap: _changeSpeed,
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+              decoration: BoxDecoration(
+                color: _scrollSpeed > 1.0
+                    ? Colors.blueAccent.withOpacity(0.2)
+                    : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  '${_scrollSpeed}x',
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: _scrollSpeed > 1.0
+                        ? Colors.blueAccent
+                        : Colors.white,
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
                   ),
                 ),
-                IconButton(
-                  icon: const Text(
-                    'T+',
-                    style: TextStyle(
-                      color: Colors.grey,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  onPressed: () => setState(
-                    () => _fontSize = (_fontSize + 1).clamp(12.0, 30.0),
-                  ),
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.all(8),
-                ),
-              ],
-            ),
-
-            Container(
-              width: 1,
-              height: 24,
-              color: Colors.white.withOpacity(0.1),
-              margin: const EdgeInsets.symmetric(horizontal: 8),
-            ),
-
-            Row(
-              children: [
-                IconButton(
-                  icon: Icon(
-                    _isPlaying
-                        ? Icons.pause_circle_filled_rounded
-                        : Icons.play_circle_fill_rounded,
-                    color: _isPlaying ? Colors.orangeAccent : Colors.grey,
-                    size: 28,
-                  ),
-                  onPressed: _toggleAutoScroll,
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.all(8),
-                ),
-                InkWell(
-                  onTap: _changeSpeed,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _scrollSpeed > 1.0
-                          ? Colors.blueAccent.withOpacity(0.2)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Text(
-                      '${_scrollSpeed}x',
-                      style: TextStyle(
-                        color: _scrollSpeed > 1.0
-                            ? Colors.blueAccent
-                            : Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ),
-
-            Container(
-              width: 1,
-              height: 24,
-              color: Colors.white.withOpacity(0.1),
-              margin: const EdgeInsets.symmetric(horizontal: 8),
-            ),
-
-            IconButton(
-              icon: const Icon(
-                Icons.settings_rounded,
-                color: Colors.grey,
-                size: 20,
               ),
-              onPressed: _showSettingsPanel,
-              constraints: const BoxConstraints(),
-              padding: const EdgeInsets.all(8),
             ),
-          ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCompactIconButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    Color color = Colors.grey,
+    double size = 21,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: SizedBox(
+        width: 30,
+        height: 38,
+        child: Icon(icon, color: color, size: size),
+      ),
+    );
+  }
+
+  Widget _buildCompactTextButton({
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: SizedBox(
+        width: 30,
+        height: 38,
+        child: Center(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: Colors.grey,
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildControlDivider() {
+    return Container(
+      width: 1,
+      height: 24,
+      color: Colors.white.withOpacity(0.1),
+      margin: const EdgeInsets.symmetric(horizontal: 3),
     );
   }
 

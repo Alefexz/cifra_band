@@ -98,7 +98,7 @@ class _SetlistScreenState extends ConsumerState<SetlistScreen> {
                 crossAxisCount: 2,
                 crossAxisSpacing: 12,
                 mainAxisSpacing: 12,
-                childAspectRatio: 1.55,
+                childAspectRatio: 1.2,
                 children: [
                   _buildQuickAccessCard(
                     title: 'Cifras Favoritas',
@@ -411,7 +411,7 @@ class _SetlistScreenState extends ConsumerState<SetlistScreen> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: const Color(0xFF16161E),
           borderRadius: BorderRadius.circular(20),
@@ -421,14 +421,14 @@ class _SetlistScreenState extends ConsumerState<SetlistScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
-              padding: const EdgeInsets.all(10),
+              padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
                 color: iconColor.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(10),
               ),
-              child: Icon(icon, color: iconColor, size: 24),
+              child: Icon(icon, color: iconColor, size: 22),
             ),
-            const SizedBox(height: 16),
+            const Spacer(),
             Text(
               title,
               maxLines: 1,
@@ -439,7 +439,7 @@ class _SetlistScreenState extends ConsumerState<SetlistScreen> {
                 fontSize: 15,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 3),
             Text(
               subtitle,
               maxLines: 1,

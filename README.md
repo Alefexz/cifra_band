@@ -26,9 +26,7 @@ O posicionamento do app não é ser apenas uma biblioteca de cifras. Ele funcion
 ## Stack Técnica
 
 - Flutter e Dart.
-- Firebase Auth.
-- Cloud Firestore.
-- Firebase Cloud Messaging.
+- Firebase Auth, Cloud Firestore e Firebase Cloud Messaging.
 - Render para API Node.js de notificações.
 - SharedPreferences para cache local/offline.
 - GoRouter para navegação.
@@ -39,6 +37,17 @@ O posicionamento do app não é ser apenas uma biblioteca de cifras. Ele funcion
 O app usa Firebase como base de autenticação e dados em tempo real. As notificações push passam por uma API própria hospedada no Render, permitindo controle do envio e separação clara entre app, banco e backend de mensageria.
 
 As regras do Firestore foram estruturadas para proteger dados por igreja/ministério, evitando acesso amplo indevido e permitindo apenas operações compatíveis com o papel do usuário.
+
+## Configuração Local
+
+Por segurança, os arquivos reais de configuração Firebase não ficam versionados neste repositório público. Para rodar o projeto em outra máquina, gere as configurações com FlutterFire CLI ou adicione localmente:
+
+- `lib/firebase_options.dart`
+- `android/app/google-services.json`
+- `ios/Runner/GoogleService-Info.plist`, quando o alvo iOS for usado
+- `.firebaserc` e `firebase.json`, quando for publicar regras pelo Firebase CLI
+
+Esses arquivos devem permanecer somente no ambiente local ou em secrets protegidos de CI/CD.
 
 ## Status
 
