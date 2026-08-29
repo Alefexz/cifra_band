@@ -31,6 +31,7 @@ class CifraScreen extends StatefulWidget {
 
 class _CifraScreenState extends State<CifraScreen> {
   late String _originalPitch;
+  late String _shapePitch;
   late String _currentPitch;
   late bool _minorToneMode;
   bool _isCapoActive = false;
@@ -56,15 +57,22 @@ class _CifraScreenState extends State<CifraScreen> {
   void initState() {
     super.initState();
     _isCapoActive = _safeCapo.isNotEmpty && _safeCapo != '0';
-    _originalPitch = TransposerEngine.resolveDisplayedKey(
+    _shapePitch = TransposerEngine.resolveShapeKey(
       originalKey: _safeOriginalKey,
       shapeKey: _safeShapeKey,
       capo: _safeCapo,
+      content: _safeContent,
+    );
+    _originalPitch = TransposerEngine.resolveDisplayedKey(
+      originalKey: _safeOriginalKey,
+      shapeKey: _shapePitch.isEmpty ? _safeShapeKey : _shapePitch,
+      capo: _safeCapo,
+      content: _safeContent,
     );
     _currentPitch = _originalPitch;
     _minorToneMode =
         TransposerEngine.isMinorKey(_originalPitch) ||
-        TransposerEngine.isMinorKey(_safeShapeKey);
+        TransposerEngine.isMinorKey(_shapePitch);
 
     WakelockPlus.enable();
     _checkIfFavorite();
@@ -175,20 +183,18 @@ class _CifraScreenState extends State<CifraScreen> {
   // LÓGICA DE TRANSPOSIÇÃO
   // ==========================================================
   String get _currentShape {
-    if (_safeShapeKey.isEmpty) return _currentPitch;
+    if (_shapePitch.isEmpty) return _currentPitch;
     int diff = TransposerEngine.getSemitonesDifference(
       _originalPitch,
       _currentPitch,
     );
-    if (diff == 0) return _safeShapeKey;
-    return TransposerEngine.transposeKey(_safeShapeKey, diff);
+    if (diff == 0) return _shapePitch;
+    return TransposerEngine.transposeKey(_shapePitch, diff);
   }
 
   String get _displayedContent {
     String baseContent = _safeContent;
-    String baseShape = _safeShapeKey.isNotEmpty
-        ? _safeShapeKey
-        : _originalPitch;
+    String baseShape = _shapePitch.isNotEmpty ? _shapePitch : _originalPitch;
     String content;
 
     if (!_isCapoActive || _safeCapo.isEmpty || _safeCapo == '0') {

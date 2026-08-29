@@ -52,6 +52,28 @@ void main() {
     expect(TransposerEngine.toneOptionsForKey(realKey), isNot(contains('Bb')));
   });
 
+  test(
+    'resolveDisplayedKey repairs old cached major shape when content is minor',
+    () {
+      const content = '[Intro] C Am F7M Am F7M\nDm7 F7M C G4\nAm F C G';
+      final shapeKey = TransposerEngine.resolveShapeKey(
+        originalKey: 'Bb',
+        shapeKey: 'A',
+        capo: '1',
+        content: content,
+      );
+      final realKey = TransposerEngine.resolveDisplayedKey(
+        originalKey: 'Bb',
+        shapeKey: shapeKey,
+        capo: '1',
+        content: content,
+      );
+
+      expect(shapeKey, 'Am');
+      expect(realKey, 'Bbm');
+    },
+  );
+
   test('normalizeKey extracts minor keys from scraped label text', () {
     expect(TransposerEngine.normalizeKey('Tom: Bbm (com forma de Am)'), 'Bbm');
     expect(TransposerEngine.normalizeKey('Forma: Am'), 'Am');

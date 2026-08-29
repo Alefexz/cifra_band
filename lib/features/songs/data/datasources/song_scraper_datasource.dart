@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../../domain/transposer_engine.dart';
 import '../models/song_model.dart';
 
 class SongScraperDatasource {
@@ -63,14 +64,27 @@ class SongScraperDatasource {
         final originalKey = _normalizeKey(_clean(data['originalKey']));
         final shapeKey = _normalizeKey(_clean(data['shapeKey']));
         final capo = _normalizeCapo(_clean(data['capo']));
+        final content = _clean(data['content']);
+        final resolvedShapeKey = TransposerEngine.resolveShapeKey(
+          originalKey: originalKey,
+          shapeKey: shapeKey,
+          capo: capo,
+          content: content,
+        );
+        final resolvedOriginalKey = TransposerEngine.resolveDisplayedKey(
+          originalKey: originalKey,
+          shapeKey: resolvedShapeKey,
+          capo: capo,
+          content: content,
+        );
         return SongModel(
           id: data['id'] ?? docId,
           title: data['title'] ?? track,
           artist: data['artist'] ?? artist,
-          originalKey: originalKey.isEmpty ? 'C' : originalKey,
-          shapeKey: shapeKey.isEmpty ? null : shapeKey,
+          originalKey: resolvedOriginalKey,
+          shapeKey: resolvedShapeKey.isEmpty ? null : resolvedShapeKey,
           capo: capo.isEmpty ? null : capo,
-          content: data['content'] ?? '',
+          content: content,
           url: data['url'] ?? '',
         );
       }
@@ -103,13 +117,25 @@ class SongScraperDatasource {
       final String capo = _normalizeCapo(_clean(decoded['capo']));
       final String content = _clean(decoded['content']);
       final String url = _clean(decoded['url']);
+      final String resolvedShapeKey = TransposerEngine.resolveShapeKey(
+        originalKey: originalKey,
+        shapeKey: shapeKey,
+        capo: capo,
+        content: content,
+      );
+      final String resolvedOriginalKey = TransposerEngine.resolveDisplayedKey(
+        originalKey: originalKey,
+        shapeKey: resolvedShapeKey,
+        capo: capo,
+        content: content,
+      );
 
       song = SongModel(
         id: docId,
         title: title.isEmpty ? 'Desconhecido' : title,
         artist: artistName.isEmpty ? 'Desconhecido' : artistName,
-        originalKey: originalKey.isEmpty ? 'C' : originalKey,
-        shapeKey: shapeKey.isEmpty ? null : shapeKey,
+        originalKey: resolvedOriginalKey,
+        shapeKey: resolvedShapeKey.isEmpty ? null : resolvedShapeKey,
         capo: capo.isEmpty ? null : capo,
         content: content,
         url: url,

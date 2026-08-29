@@ -179,6 +179,7 @@ class TransposerEngine {
     required String originalKey,
     String? shapeKey,
     String? capo,
+    String content = '',
   }) {
     final original = normalizeKey(originalKey);
     final shape = normalizeKey(shapeKey ?? '');
@@ -187,17 +188,78 @@ class TransposerEngine {
         0;
 
     if (isMinorKey(shape) && !isMinorKey(original) && capoValue > 0) {
-      final inferred = transposeKey(shape, capoValue);
-      final originalRoot = _removeMinor(original);
-      if (_noteToIndex(originalRoot) == _noteToIndex(_removeMinor(inferred))) {
-        return '${originalRoot}m';
+      return _minorRealKeyFromShape(original, shape, capoValue);
+    }
+
+    if (shape.isNotEmpty &&
+        !isMinorKey(shape) &&
+        !isMinorKey(original) &&
+        capoValue > 0 &&
+        content.isNotEmpty) {
+      final minorShape = '${_removeMinor(shape)}m';
+      final minorCount = _countChordRoot(content, minorShape);
+      final majorCount = _countChordRoot(content, shape);
+
+      if (minorCount > majorCount) {
+        return _minorRealKeyFromShape(original, minorShape, capoValue);
       }
-      return inferred;
     }
 
     if (original.isNotEmpty) return original;
     if (shape.isNotEmpty) return shape;
     return 'C';
+  }
+
+  static String resolveShapeKey({
+    required String originalKey,
+    String? shapeKey,
+    String? capo,
+    String content = '',
+  }) {
+    final shape = normalizeKey(shapeKey ?? '');
+    if (shape.isEmpty) return '';
+
+    final capoValue =
+        int.tryParse(RegExp(r'\d+').firstMatch(capo ?? '')?.group(0) ?? '') ??
+        0;
+    final realKey = resolveDisplayedKey(
+      originalKey: originalKey,
+      shapeKey: shapeKey,
+      capo: capo,
+      content: content,
+    );
+
+    if (isMinorKey(realKey) && !isMinorKey(shape)) {
+      final minorShape = '${_removeMinor(shape)}m';
+      if (content.isNotEmpty) {
+        final minorCount = _countChordRoot(content, minorShape);
+        final majorCount = _countChordRoot(content, shape);
+        if (minorCount > majorCount) return minorShape;
+      }
+
+      if (capoValue > 0) {
+        final expectedShape = transposeKey(realKey, -capoValue);
+        if (_noteToIndex(_removeMinor(expectedShape)) ==
+            _noteToIndex(_removeMinor(shape))) {
+          return expectedShape;
+        }
+      }
+    }
+
+    return shape;
+  }
+
+  static String _minorRealKeyFromShape(
+    String original,
+    String minorShape,
+    int capoValue,
+  ) {
+    final inferred = transposeKey(minorShape, capoValue);
+    final originalRoot = _removeMinor(original);
+    if (_noteToIndex(originalRoot) == _noteToIndex(_removeMinor(inferred))) {
+      return '${originalRoot}m';
+    }
+    return inferred;
   }
 
   static List<String> toneOptionsForKey(String key, {String? shapeKey}) {
@@ -294,6 +356,37 @@ class TransposerEngine {
       if (isChordToken(token)) chords++;
     }
     return chords > 0 && chords >= (tokens.length / 2);
+  }
+
+  static String _chordRootQuality(String chord) {
+    final value = chord.trim();
+    if (!isChordToken(value)) return '';
+
+    final rootMatch = RegExp(r'^([A-G][#b]?)').firstMatch(value);
+    if (rootMatch == null) return '';
+
+    final root = rootMatch.group(1)!;
+    final rest = value.substring(root.length).toLowerCase();
+    final minor = rest.startsWith('m') && !rest.startsWith('maj');
+    return normalizeKey('$root${minor ? 'm' : ''}');
+  }
+
+  static int _countChordRoot(String content, String key) {
+    final target = normalizeKey(key);
+    if (target.isEmpty) return 0;
+
+    var count = 0;
+    for (final line in content.split('\n')) {
+      if (!isChordLine(line)) continue;
+
+      for (final token in line.trim().split(RegExp(r'\s+'))) {
+        if (_chordRootQuality(token) == target) {
+          count++;
+        }
+      }
+    }
+
+    return count;
   }
 
   static String _transposeChordLine(
