@@ -83,6 +83,17 @@ class ApiNotification {
     );
   }
 
+  static Future<void> notificarEscalaCancelada(
+    List<String> uidsEquipe,
+    String nomeCulto,
+  ) async {
+    await _enviar(
+      userIds: uidsEquipe,
+      title: 'Escala cancelada',
+      body: 'O $nomeCulto foi removido da agenda.',
+    );
+  }
+
   static Future<void> notificarMusicaAprovada(
     List<String> uidsEquipe,
     String nomeMusica,
@@ -102,6 +113,17 @@ class ApiNotification {
       userIds: uidsEquipe,
       title: 'Sugestão encerrada',
       body: '"$nomeMusica" não entrou no repertório desta escala.',
+    );
+  }
+
+  static Future<void> notificarMusicaRemovida(
+    List<String> uidsEquipe,
+    String nomeMusica,
+  ) async {
+    await _enviar(
+      userIds: uidsEquipe,
+      title: 'Repertório atualizado',
+      body: '"$nomeMusica" foi removida do repertório oficial.',
     );
   }
 

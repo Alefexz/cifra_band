@@ -71,10 +71,16 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     );
 
     if (confirm == true) {
-      await FirebaseFirestore.instance
+      final docRef = FirebaseFirestore.instance
           .collection('schedules')
-          .doc(widget.scheduleId)
-          .delete();
+          .doc(widget.scheduleId);
+      final snapshot = await docRef.get();
+      final data = snapshot.data() ?? {};
+      final title = data['title']?.toString() ?? 'culto';
+      final teamUids = _extractTeamUids(data['team_assignments'] ?? []);
+
+      await docRef.delete();
+      await ApiNotification.notificarEscalaCancelada(teamUids, title);
       if (mounted) context.pop();
     }
   }
@@ -204,13 +210,33 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     return adminUids.toList();
   }
 
+  List<String> _extractTeamUids(List<dynamic> teamAssignments) {
+    return teamAssignments
+        .map((assignment) {
+          if (assignment is Map<String, dynamic>) return assignment['uid'];
+          if (assignment is Map) return assignment['uid'];
+          return null;
+        })
+        .whereType<String>()
+        .toSet()
+        .toList();
+  }
+
   Future<void> _removeApprovedSong(Map<String, dynamic> songMap) async {
     final docRef = FirebaseFirestore.instance
         .collection('schedules')
         .doc(widget.scheduleId);
+    final snapshot = await docRef.get();
+    final teamUids = _extractTeamUids(
+      List<dynamic>.from(snapshot.data()?['team_assignments'] ?? []),
+    );
     await docRef.update({
       'approved_songs': FieldValue.arrayRemove([songMap]),
     });
+    await ApiNotification.notificarMusicaRemovida(
+      teamUids,
+      songMap['title']?.toString() ?? 'Uma música',
+    );
     if (mounted)
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -226,15 +252,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     List<dynamic> currentTeam,
   ) async {
     final uid = FirebaseAuth.instance.currentUser!.uid;
-    final teamUids = currentTeam
-        .map((assignment) {
-          if (assignment is Map<String, dynamic>) return assignment['uid'];
-          if (assignment is Map) return assignment['uid'];
-          return null;
-        })
-        .whereType<String>()
-        .toSet()
-        .toList();
+    final teamUids = _extractTeamUids(currentTeam);
     String? approvedSongTitle;
     String? rejectedSongTitle;
     final docRef = FirebaseFirestore.instance
