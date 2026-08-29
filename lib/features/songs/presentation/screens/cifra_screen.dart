@@ -836,10 +836,12 @@ class _CifraScreenState extends State<CifraScreen> {
             InkWell(
               onTap: _toggleFavorite,
               child: Container(
-                padding: const EdgeInsets.all(10),
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: Colors.blueAccent.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
+                  shape: BoxShape.circle,
                 ),
                 child: Icon(
                   _isFavorite
@@ -853,6 +855,57 @@ class _CifraScreenState extends State<CifraScreen> {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _buildCifraInfoChip({
+    required String label,
+    required Color color,
+    required VoidCallback onTap,
+    IconData? icon,
+    bool selected = true,
+  }) {
+    final foreground = selected ? color : Colors.white70;
+    final background = selected
+        ? color.withOpacity(0.14)
+        : Colors.white.withOpacity(0.06);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 260),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: foreground.withOpacity(0.18)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(icon, color: foreground, size: 15),
+                const SizedBox(width: 6),
+              ],
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: foreground,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -892,114 +945,33 @@ class _CifraScreenState extends State<CifraScreen> {
                   runSpacing: 8,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    InkWell(
+                    _buildCifraInfoChip(
+                      label: 'Tom Real: $_currentPitch',
+                      color: Colors.blueAccent,
                       onTap: _showToneSelector,
-                      borderRadius: BorderRadius.circular(6),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.blueAccent.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Text(
-                          'Tom Real: $_currentPitch',
-                          style: const TextStyle(
-                            color: Colors.blueAccent,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
                     ),
 
-                    if (_safeCapo.isNotEmpty && _safeCapo != '0') ...[
-                      InkWell(
+                    if (_safeCapo.isNotEmpty && _safeCapo != '0')
+                      _buildCifraInfoChip(
+                        label: _isCapoActive
+                            ? 'Capo $_safeCapo (Forma $_currentShape)'
+                            : 'Sem Capo',
+                        color: _isCapoActive ? Colors.orange : Colors.grey,
+                        icon: _isCapoActive
+                            ? Icons.link_rounded
+                            : Icons.link_off_rounded,
                         onTap: _showSettingsPanel,
-                        borderRadius: BorderRadius.circular(6),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _isCapoActive
-                                ? Colors.orange.withOpacity(0.1)
-                                : Colors.grey.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                _isCapoActive
-                                    ? Icons.link_rounded
-                                    : Icons.link_off_rounded,
-                                color: _isCapoActive
-                                    ? Colors.orange
-                                    : Colors.grey,
-                                size: 14,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                _isCapoActive
-                                    ? 'Capo $_safeCapo (Forma $_currentShape)'
-                                    : 'Sem Capo',
-                                style: TextStyle(
-                                  color: _isCapoActive
-                                      ? Colors.orange
-                                      : Colors.grey,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
                       ),
-                    ],
-                    InkWell(
+
+                    _buildCifraInfoChip(
+                      label: 'Simplificada',
+                      color: Colors.greenAccent,
+                      icon: _isSimplified
+                          ? Icons.check_circle_rounded
+                          : Icons.tune_rounded,
+                      selected: _isSimplified,
                       onTap: () =>
                           setState(() => _isSimplified = !_isSimplified),
-                      borderRadius: BorderRadius.circular(6),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: _isSimplified
-                              ? Colors.greenAccent.withOpacity(0.14)
-                              : Colors.white.withOpacity(0.06),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _isSimplified
-                                  ? Icons.check_circle_rounded
-                                  : Icons.tune_rounded,
-                              color: _isSimplified
-                                  ? Colors.greenAccent
-                                  : Colors.white70,
-                              size: 14,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Simplificada',
-                              style: TextStyle(
-                                color: _isSimplified
-                                    ? Colors.greenAccent
-                                    : Colors.white70,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     ),
                   ],
                 ),
