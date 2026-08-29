@@ -1124,23 +1124,25 @@ class _CifraScreenState extends State<CifraScreen> {
       widgets.add(
         SizedBox(
           width: double.infinity,
-          child: Text(
-            line.trim(),
-            textAlign: TextAlign.center,
+          child: _buildCifraLine(
+            line,
             style: TextStyle(
               color: Colors.white.withOpacity(0.92),
               fontFamily: 'monospace',
               fontSize: _fontSize,
-              height: 1.72,
+              height: 1.55,
             ),
           ),
         ),
       );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: widgets,
+    return Align(
+      alignment: Alignment.topCenter,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: widgets,
+      ),
     );
   }
 
