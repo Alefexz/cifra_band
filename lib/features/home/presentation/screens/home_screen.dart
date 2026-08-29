@@ -16,6 +16,7 @@ import '../providers/home_providers.dart';
 import 'package:cifra_band/features/setlist/presentation/screens/setlist_screen.dart';
 // ⚠️ IMPORTA O SEU NOVO SERVIÇO DE REGISTRO DE TOKENS
 import 'package:cifra_band/core/services/push_notification_service.dart';
+import 'package:cifra_band/core/services/api_notification.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -1370,11 +1371,18 @@ class _JoinMinistryBottomSheetState extends State<_JoinMinistryBottomSheet> {
         throw Exception('Convite inválido.');
       }
       final uid = FirebaseAuth.instance.currentUser!.uid;
+      final userDoc = await firestore.collection('users').doc(uid).get();
+      final memberName = userDoc.data()?['name']?.toString() ?? 'Novo membro';
+      final adminId = inviteDoc.data()?['admin_id'];
 
       await firestore.collection('users').doc(uid).update({
         'church_id': ministryId,
         'is_admin': false,
       });
+
+      if (adminId is String && adminId.isNotEmpty && adminId != uid) {
+        await ApiNotification.notificarNovoMembro([adminId], memberName);
+      }
       if (mounted) Navigator.pop(context);
     } catch (e) {
       debugPrint('Erro: $e');

@@ -72,6 +72,17 @@ class ApiNotification {
     );
   }
 
+  static Future<void> notificarNovoMembro(
+    List<String> uidsAdmins,
+    String nomeMembro,
+  ) async {
+    await _enviar(
+      userIds: uidsAdmins,
+      title: 'Novo membro na equipe',
+      body: '$nomeMembro entrou no ministério pelo código de convite.',
+    );
+  }
+
   static Future<void> notificarEscalaAtualizada(
     List<String> uidsEquipe,
     String nomeCulto,
