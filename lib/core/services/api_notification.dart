@@ -60,6 +60,51 @@ class ApiNotification {
     );
   }
 
+  static Future<void> notificarRemovidoDaEscala(
+    String uid,
+    String nomeCulto,
+    String funcao,
+  ) async {
+    await _enviar(
+      userIds: [uid],
+      title: 'Escala atualizada',
+      body: 'Você foi removido(a) de $funcao no $nomeCulto.',
+    );
+  }
+
+  static Future<void> notificarEscalaAtualizada(
+    List<String> uidsEquipe,
+    String nomeCulto,
+  ) async {
+    await _enviar(
+      userIds: uidsEquipe,
+      title: 'Escala atualizada',
+      body: 'O $nomeCulto teve nome ou horário alterado. Confira no app.',
+    );
+  }
+
+  static Future<void> notificarMusicaAprovada(
+    List<String> uidsEquipe,
+    String nomeMusica,
+  ) async {
+    await _enviar(
+      userIds: uidsEquipe,
+      title: 'Música aprovada',
+      body: '"$nomeMusica" entrou no repertório oficial.',
+    );
+  }
+
+  static Future<void> notificarMusicaRejeitada(
+    List<String> uidsEquipe,
+    String nomeMusica,
+  ) async {
+    await _enviar(
+      userIds: uidsEquipe,
+      title: 'Sugestão encerrada',
+      body: '"$nomeMusica" não entrou no repertório desta escala.',
+    );
+  }
+
   // O motor interno que faz a comunicação com o Render
   static Future<void> _enviar({
     required List<String> userIds,

@@ -95,6 +95,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
 
   Future<void> _removeMemberFromSchedule(
     Map<String, dynamic> memberAssignment,
+    String scheduleTitle,
   ) async {
     final docRef = FirebaseFirestore.instance
         .collection('schedules')
@@ -102,6 +103,12 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     await docRef.update({
       'team_assignments': FieldValue.arrayRemove([memberAssignment]),
     });
+
+    final uid = memberAssignment['uid']?.toString();
+    final role = memberAssignment['role']?.toString() ?? 'Membro';
+    if (uid != null && uid.isNotEmpty) {
+      await ApiNotification.notificarRemovidoDaEscala(uid, scheduleTitle, role);
+    }
   }
 
   Future<void> _respondToAssignment({
@@ -219,6 +226,17 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     List<dynamic> currentTeam,
   ) async {
     final uid = FirebaseAuth.instance.currentUser!.uid;
+    final teamUids = currentTeam
+        .map((assignment) {
+          if (assignment is Map<String, dynamic>) return assignment['uid'];
+          if (assignment is Map) return assignment['uid'];
+          return null;
+        })
+        .whereType<String>()
+        .toSet()
+        .toList();
+    String? approvedSongTitle;
+    String? rejectedSongTitle;
     final docRef = FirebaseFirestore.instance
         .collection('schedules')
         .doc(widget.scheduleId);
@@ -263,18 +281,32 @@ class _EventDetailScreenState extends State<EventDetailScreen>
       if (upvotes.length > requiredVotes) {
         suggested.removeAt(index);
         approved.add(targetSong);
+        approvedSongTitle = targetSong['title']?.toString();
         transaction.update(docRef, {
           'suggested_songs': suggested,
           'approved_songs': approved,
         });
       } else if (downvotes.length >= requiredVotes) {
         suggested.removeAt(index);
+        rejectedSongTitle = targetSong['title']?.toString();
         transaction.update(docRef, {'suggested_songs': suggested});
       } else {
         suggested[index] = targetSong;
         transaction.update(docRef, {'suggested_songs': suggested});
       }
     });
+
+    if (approvedSongTitle != null) {
+      await ApiNotification.notificarMusicaAprovada(
+        teamUids,
+        approvedSongTitle!,
+      );
+    } else if (rejectedSongTitle != null) {
+      await ApiNotification.notificarMusicaRejeitada(
+        teamUids,
+        rejectedSongTitle!,
+      );
+    }
   }
 
   Future<void> _shareToWhatsApp(
@@ -1231,7 +1263,8 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                     Icons.remove_circle_outline_rounded,
                     color: Colors.redAccent,
                   ),
-                  onPressed: () => _removeMemberFromSchedule(assignment),
+                  onPressed: () =>
+                      _removeMemberFromSchedule(assignment, scheduleTitle),
                 ),
             ],
           ),
@@ -1387,13 +1420,30 @@ class _EditScheduleBottomSheetState extends State<_EditScheduleBottomSheet> {
         _selectedTime!.minute,
       );
 
-      await FirebaseFirestore.instance
+      final docRef = FirebaseFirestore.instance
           .collection('schedules')
-          .doc(widget.scheduleId)
-          .update({
-            'title': _titleController.text.trim(),
-            'date': Timestamp.fromDate(finalDateTime),
-          });
+          .doc(widget.scheduleId);
+      final snapshot = await docRef.get();
+      final teamAssignments = List<dynamic>.from(
+        snapshot.data()?['team_assignments'] ?? [],
+      );
+      final teamUids = teamAssignments
+          .map((assignment) {
+            if (assignment is Map<String, dynamic>) return assignment['uid'];
+            if (assignment is Map) return assignment['uid'];
+            return null;
+          })
+          .whereType<String>()
+          .toSet()
+          .toList();
+      final updatedTitle = _titleController.text.trim();
+
+      await docRef.update({
+        'title': updatedTitle,
+        'date': Timestamp.fromDate(finalDateTime),
+      });
+
+      await ApiNotification.notificarEscalaAtualizada(teamUids, updatedTitle);
 
       if (mounted) {
         Navigator.pop(context);
