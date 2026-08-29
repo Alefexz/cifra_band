@@ -38,7 +38,7 @@ class _AvailabilityScreenState extends State<AvailabilityScreen> {
     if (picked == null) return;
     if (!mounted) return;
 
-    final reasonController = TextEditingController();
+    var reasonText = '';
     final reason = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -48,9 +48,9 @@ class _AvailabilityScreenState extends State<AvailabilityScreen> {
           style: TextStyle(color: Colors.white),
         ),
         content: TextField(
-          controller: reasonController,
           autofocus: true,
           style: const TextStyle(color: Colors.white),
+          onChanged: (value) => reasonText = value,
           decoration: const InputDecoration(
             labelText: 'Motivo opcional',
             labelStyle: TextStyle(color: Colors.grey),
@@ -68,7 +68,7 @@ class _AvailabilityScreenState extends State<AvailabilityScreen> {
             child: const Text('Cancelar', style: TextStyle(color: Colors.grey)),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(context, reasonController.text),
+            onPressed: () => Navigator.pop(context, reasonText),
             child: const Text(
               'Salvar',
               style: TextStyle(color: Colors.blueAccent),
@@ -79,7 +79,6 @@ class _AvailabilityScreenState extends State<AvailabilityScreen> {
     );
 
     if (reason == null) {
-      reasonController.dispose();
       return;
     }
 
@@ -116,7 +115,6 @@ class _AvailabilityScreenState extends State<AvailabilityScreen> {
         );
       }
     } finally {
-      reasonController.dispose();
       if (mounted) setState(() => _saving = false);
     }
   }
