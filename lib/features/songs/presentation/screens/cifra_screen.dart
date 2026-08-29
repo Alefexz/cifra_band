@@ -1060,7 +1060,7 @@ class _CifraScreenState extends State<CifraScreen> {
           widgets.add(
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 1),
-              child: Text(
+              child: _buildCifraLine(
                 line,
                 style: TextStyle(
                   color: Colors.grey.shade500,
@@ -1068,6 +1068,7 @@ class _CifraScreenState extends State<CifraScreen> {
                   fontSize: _fontSize - 2,
                   height: 1.32,
                 ),
+                keepOnOneLine: true,
               ),
             ),
           );
@@ -1104,7 +1105,7 @@ class _CifraScreenState extends State<CifraScreen> {
           widgets.add(
             Padding(
               padding: EdgeInsets.only(top: _fontSize * 0.35),
-              child: Text(
+              child: _buildCifraLine(
                 line.trimRight(),
                 style: TextStyle(
                   color: Colors.blueAccent,
@@ -1113,6 +1114,7 @@ class _CifraScreenState extends State<CifraScreen> {
                   fontSize: _fontSize,
                   height: 1.28,
                 ),
+                keepOnOneLine: true,
               ),
             ),
           );
@@ -1136,22 +1138,32 @@ class _CifraScreenState extends State<CifraScreen> {
       );
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          physics: widget.allowHorizontalCifraScroll
-              ? const BouncingScrollPhysics()
-              : const NeverScrollableScrollPhysics(),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minWidth: constraints.maxWidth),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: widgets,
-            ),
-          ),
-        );
-      },
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: widgets,
+    );
+  }
+
+  Widget _buildCifraLine(
+    String text, {
+    required TextStyle style,
+    bool keepOnOneLine = false,
+  }) {
+    final child = Text(
+      text,
+      softWrap: !keepOnOneLine || !widget.allowHorizontalCifraScroll,
+      overflow: TextOverflow.visible,
+      style: style,
+    );
+
+    if (!keepOnOneLine || !widget.allowHorizontalCifraScroll) {
+      return child;
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      physics: const BouncingScrollPhysics(),
+      child: child,
     );
   }
 }
