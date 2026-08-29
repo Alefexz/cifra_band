@@ -809,6 +809,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                 approvedSongs,
                 suggestedSongs,
                 teamAssignments,
+                title,
               ),
               _buildEquipeTab(churchId, teamAssignments, title),
             ],
@@ -837,7 +838,13 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     List<dynamic> approved,
     List<dynamic> suggested,
     List<dynamic> teamAssignments,
+    String scheduleTitle,
   ) {
+    final approvedSongModels = approved
+        .whereType<Map>()
+        .map((song) => _songModelFromScheduleSong(song))
+        .toList();
+
     return ListView(
       padding: const EdgeInsets.all(20),
       physics: const BouncingScrollPhysics(),
@@ -861,7 +868,29 @@ class _EventDetailScreenState extends State<EventDetailScreen>
               style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic),
             ),
           )
-        else
+        else ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: ElevatedButton.icon(
+              onPressed: () => context.push(
+                '/cult-setlist',
+                extra: {'title': scheduleTitle, 'songs': approvedSongModels},
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blueAccent,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              icon: const Icon(Icons.playlist_play_rounded),
+              label: Text(
+                'Tocar Setlist do Culto (${approvedSongModels.length})',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
           ...approved.map(
             (song) => _buildSongCard(
               songMap: song as Map<String, dynamic>,
@@ -869,6 +898,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
               team: teamAssignments,
             ),
           ),
+        ],
 
         const SizedBox(height: 24),
 
@@ -897,6 +927,26 @@ class _EventDetailScreenState extends State<EventDetailScreen>
             ),
           ),
       ],
+    );
+  }
+
+  SongModel _songModelFromScheduleSong(Map<dynamic, dynamic> songMap) {
+    final title = songMap['title']?.toString() ?? 'Música desconhecida';
+    final artist = songMap['artist']?.toString() ?? 'Artista desconhecido';
+    return SongModel(
+      id: songMap['id']?.toString() ?? '${title}_${artist}',
+      title: title,
+      artist: artist,
+      originalKey:
+          songMap['originalKey']?.toString() ??
+          songMap['key']?.toString() ??
+          'C',
+      content:
+          songMap['content']?.toString() ??
+          '⚠️ ERRO: A cifra não foi salva no banco de dados da Escala.\n\nExclua esta música e adicione novamente para corrigir este problema!',
+      capo: songMap['capo']?.toString() ?? '0',
+      shapeKey: songMap['shapeKey']?.toString() ?? '',
+      url: songMap['url']?.toString() ?? '',
     );
   }
 
@@ -1035,19 +1085,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     // ⚠️ AGORA A MÚSICA É CLICÁVEL E ABRE A CIFRA REAL!
     return GestureDetector(
       onTap: () {
-        final songModel = SongModel(
-          id: songMap['title'] ?? 'id_generico',
-          title: title,
-          artist: artist,
-          originalKey: songMap['originalKey'] ?? songMap['key'] ?? 'C',
-          // Tratamento para cifras antigas salvas com o bug
-          content:
-              songMap['content'] ??
-              '⚠️ ERRO: A cifra não foi salva no banco de dados da Escala.\n\nExclua esta música e adicione novamente para corrigir este problema!',
-          capo: songMap['capo']?.toString() ?? '0',
-          shapeKey: songMap['shapeKey'] ?? '',
-          url: songMap['url'] ?? '',
-        );
+        final songModel = _songModelFromScheduleSong(songMap);
         context.push('/cifra', extra: songModel);
       },
       child: Container(

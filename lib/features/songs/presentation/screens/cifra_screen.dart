@@ -12,8 +12,15 @@ import '../../domain/transposer_engine.dart';
 
 class CifraScreen extends StatefulWidget {
   final SongModel song;
+  final bool embedded;
+  final bool recordHistory;
 
-  const CifraScreen({super.key, required this.song});
+  const CifraScreen({
+    super.key,
+    required this.song,
+    this.embedded = false,
+    this.recordHistory = true,
+  });
 
   @override
   State<CifraScreen> createState() => _CifraScreenState();
@@ -47,7 +54,9 @@ class _CifraScreenState extends State<CifraScreen> {
 
     WakelockPlus.enable();
     _checkIfFavorite();
-    unawaited(PlayedHistoryService.recordSong(widget.song));
+    if (widget.recordHistory) {
+      unawaited(PlayedHistoryService.recordSong(widget.song));
+    }
   }
 
   @override
@@ -189,35 +198,95 @@ class _CifraScreenState extends State<CifraScreen> {
   void _toneUp() => _changeToneTo(_getShiftedPitch(1));
   void _toneDown() => _changeToneTo(_getShiftedPitch(-1));
 
-  String _getShiftedPitch(int diff) {
-    final notes = [
+  bool _isMinorPitch(String pitch) {
+    return TransposerEngine.normalizeKey(pitch).toLowerCase().endsWith('m');
+  }
+
+  List<String> _toneOptionsForCurrentMode() {
+    if (_isMinorPitch(_currentPitch)) {
+      return const [
+        'Am',
+        'Bbm',
+        'Bm',
+        'Cm',
+        'C#m',
+        'Dm',
+        'Ebm',
+        'Em',
+        'Fm',
+        'F#m',
+        'Gm',
+        'G#m',
+      ];
+    }
+
+    return const [
+      'A',
+      'Bb',
+      'B',
       'C',
-      'C#',
+      'Db',
       'D',
-      'D#',
+      'Eb',
       'E',
       'F',
       'F#',
       'G',
-      'G#',
-      'A',
-      'A#',
-      'B',
+      'Ab',
     ];
-    String clean = _currentPitch
-        .replaceAll('Db', 'C#')
-        .replaceAll('Eb', 'D#')
-        .replaceAll('Gb', 'F#')
-        .replaceAll('Ab', 'G#')
-        .replaceAll('Bb', 'A#');
+  }
 
-    clean = clean.replaceAll(RegExp(r'[^A-G#]'), '');
+  String _canonicalPitchForUi(String pitch) {
+    final options = _isMinorPitch(pitch)
+        ? const [
+            'Am',
+            'Bbm',
+            'Bm',
+            'Cm',
+            'C#m',
+            'Dm',
+            'Ebm',
+            'Em',
+            'Fm',
+            'F#m',
+            'Gm',
+            'G#m',
+          ]
+        : const [
+            'A',
+            'Bb',
+            'B',
+            'C',
+            'Db',
+            'D',
+            'Eb',
+            'E',
+            'F',
+            'F#',
+            'G',
+            'Ab',
+          ];
 
-    int idx = notes.indexOf(clean);
+    for (final option in options) {
+      if (TransposerEngine.getSemitonesDifference(option, pitch) == 0 &&
+          _isMinorPitch(option) == _isMinorPitch(pitch)) {
+        return option;
+      }
+    }
+    return pitch;
+  }
+
+  String _getShiftedPitch(int diff) {
+    final options = _toneOptionsForCurrentMode();
+    int idx = options.indexWhere(
+      (tone) =>
+          TransposerEngine.getSemitonesDifference(tone, _currentPitch) == 0 &&
+          _isMinorPitch(tone) == _isMinorPitch(_currentPitch),
+    );
     if (idx == -1) idx = 0;
     int newIdx = (idx + diff) % 12;
     if (newIdx < 0) newIdx += 12;
-    return notes[newIdx];
+    return options[newIdx];
   }
 
   void _changeToneTo(String targetPitch) {
@@ -320,25 +389,8 @@ class _CifraScreenState extends State<CifraScreen> {
   }
 
   void _showToneSelector() {
-    final List<String> tones = [
-      'A',
-      'Bb',
-      'B',
-      'C',
-      'Db',
-      'D',
-      'Eb',
-      'E',
-      'F',
-      'F#',
-      'G',
-      'Ab',
-    ];
-    String uiPitch = _currentPitch
-        .replaceAll('A#', 'Bb')
-        .replaceAll('D#', 'Eb')
-        .replaceAll('G#', 'Ab')
-        .replaceAll('C#', 'Db');
+    final List<String> tones = _toneOptionsForCurrentMode();
+    String uiPitch = _canonicalPitchForUi(_currentPitch);
 
     showModalBottomSheet(
       context: context,
@@ -374,11 +426,7 @@ class _CifraScreenState extends State<CifraScreen> {
                         child: InkWell(
                           onTap: () {
                             _toneDown();
-                            uiPitch = _currentPitch
-                                .replaceAll('A#', 'Bb')
-                                .replaceAll('D#', 'Eb')
-                                .replaceAll('G#', 'Ab')
-                                .replaceAll('C#', 'Db');
+                            uiPitch = _canonicalPitchForUi(_currentPitch);
                             setModalState(() {});
                           },
                           child: Container(
@@ -405,11 +453,7 @@ class _CifraScreenState extends State<CifraScreen> {
                         child: InkWell(
                           onTap: () {
                             _toneUp();
-                            uiPitch = _currentPitch
-                                .replaceAll('A#', 'Bb')
-                                .replaceAll('D#', 'Eb')
-                                .replaceAll('G#', 'Ab')
-                                .replaceAll('C#', 'Db');
+                            uiPitch = _canonicalPitchForUi(_currentPitch);
                             setModalState(() {});
                           },
                           child: Container(
@@ -477,11 +521,7 @@ class _CifraScreenState extends State<CifraScreen> {
                   InkWell(
                     onTap: () {
                       _changeToneTo(_safeOriginalKey);
-                      uiPitch = _safeOriginalKey
-                          .replaceAll('A#', 'Bb')
-                          .replaceAll('D#', 'Eb')
-                          .replaceAll('G#', 'Ab')
-                          .replaceAll('C#', 'Db');
+                      uiPitch = _canonicalPitchForUi(_safeOriginalKey);
                       setModalState(() {});
                     },
                     child: Container(
@@ -706,6 +746,29 @@ class _CifraScreenState extends State<CifraScreen> {
   }
 
   Widget _buildTitleAndActionsBar() {
+    if (widget.embedded) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: InkWell(
+          onTap: _toggleFavorite,
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: Colors.blueAccent.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(
+              _isFavorite
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
+              color: _isFavorite ? Colors.redAccent : Colors.blueAccent,
+              size: 22,
+            ),
+          ),
+        ),
+      );
+    }
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -761,123 +824,124 @@ class _CifraScreenState extends State<CifraScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF0D0D12),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildTopControlBar(),
-            Expanded(
-              child: SingleChildScrollView(
-                controller: _scrollController,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 8,
+    final page = Column(
+      children: [
+        _buildTopControlBar(),
+        Expanded(
+          child: SingleChildScrollView(
+            controller: _scrollController,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+            physics: const BouncingScrollPhysics(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildTitleAndActionsBar(),
+                const SizedBox(height: 24),
+
+                Text(
+                  widget.song.title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-                physics: const BouncingScrollPhysics(),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 4),
+                Text(
+                  widget.song.artist,
+                  style: const TextStyle(color: Colors.grey, fontSize: 16),
+                ),
+                const SizedBox(height: 16),
+
+                Row(
                   children: [
-                    _buildTitleAndActionsBar(),
-                    const SizedBox(height: 24),
-
-                    Text(
-                      widget.song.title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 26,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      widget.song.artist,
-                      style: const TextStyle(color: Colors.grey, fontSize: 16),
-                    ),
-                    const SizedBox(height: 16),
-
-                    Row(
-                      children: [
-                        InkWell(
-                          onTap: _showToneSelector,
+                    InkWell(
+                      onTap: _showToneSelector,
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.blueAccent.withOpacity(0.1),
                           borderRadius: BorderRadius.circular(6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.blueAccent.withOpacity(0.1),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              'Tom Real: $_currentPitch',
-                              style: const TextStyle(
-                                color: Colors.blueAccent,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
-                              ),
-                            ),
+                        ),
+                        child: Text(
+                          'Tom Real: $_currentPitch',
+                          style: const TextStyle(
+                            color: Colors.blueAccent,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
                           ),
                         ),
-
-                        if (_safeCapo.isNotEmpty && _safeCapo != '0') ...[
-                          const SizedBox(width: 8),
-                          InkWell(
-                            onTap: _showSettingsPanel,
-                            borderRadius: BorderRadius.circular(6),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _isCapoActive
-                                    ? Colors.orange.withOpacity(0.1)
-                                    : Colors.grey.withOpacity(0.1),
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _isCapoActive
-                                        ? Icons.link_rounded
-                                        : Icons.link_off_rounded,
-                                    color: _isCapoActive
-                                        ? Colors.orange
-                                        : Colors.grey,
-                                    size: 14,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    _isCapoActive
-                                        ? 'Capo $_safeCapo (Forma $_currentShape)'
-                                        : 'Sem Capo',
-                                    style: TextStyle(
-                                      color: _isCapoActive
-                                          ? Colors.orange
-                                          : Colors.grey,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
+                      ),
                     ),
 
-                    const SizedBox(height: 24),
-                    _buildRichCifra(),
+                    if (_safeCapo.isNotEmpty && _safeCapo != '0') ...[
+                      const SizedBox(width: 8),
+                      InkWell(
+                        onTap: _showSettingsPanel,
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: _isCapoActive
+                                ? Colors.orange.withOpacity(0.1)
+                                : Colors.grey.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                _isCapoActive
+                                    ? Icons.link_rounded
+                                    : Icons.link_off_rounded,
+                                color: _isCapoActive
+                                    ? Colors.orange
+                                    : Colors.grey,
+                                size: 14,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                _isCapoActive
+                                    ? 'Capo $_safeCapo (Forma $_currentShape)'
+                                    : 'Sem Capo',
+                                style: TextStyle(
+                                  color: _isCapoActive
+                                      ? Colors.orange
+                                      : Colors.grey,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
-              ),
+
+                const SizedBox(height: 24),
+                _buildRichCifra(),
+              ],
             ),
-          ],
+          ),
         ),
-      ),
+      ],
+    );
+
+    if (widget.embedded) {
+      return ColoredBox(color: const Color(0xFF0D0D12), child: page);
+    }
+
+    return Scaffold(
+      backgroundColor: const Color(0xFF0D0D12),
+      body: SafeArea(child: page),
     );
   }
 

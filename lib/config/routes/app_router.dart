@@ -9,6 +9,7 @@ import 'package:cifra_band/features/home/presentation/screens/home_screen.dart';
 import 'package:cifra_band/features/home/presentation/screens/create_ministry_screen.dart';
 import 'package:cifra_band/features/home/presentation/screens/event_detail_screen.dart';
 import 'package:cifra_band/features/home/presentation/screens/add_friend_screen.dart'; // ⚠️ IMPORTAÇÃO DA NOVA TELA AQUI
+import 'package:cifra_band/features/home/presentation/screens/cult_setlist_player_screen.dart';
 
 import 'package:cifra_band/features/setlist/domain/entities/setlist_entity.dart';
 import 'package:cifra_band/features/setlist/presentation/screens/setlist_detail_screen.dart';
@@ -126,6 +127,39 @@ final appRouter = GoRouter(
           context,
           state,
           AddSongScreen(setlistId: setlistId),
+        );
+      },
+    ),
+    GoRoute(
+      path: '/cult-setlist',
+      pageBuilder: (context, state) {
+        final args = state.extra as Map<String, dynamic>? ?? {};
+        final title = args['title']?.toString() ?? 'Setlist do Culto';
+        final rawSongs = args['songs'];
+        final initialIndex = args['initialIndex'] is int
+            ? args['initialIndex'] as int
+            : 0;
+
+        if (rawSongs is! List<SongModel> || rawSongs.isEmpty) {
+          return _buildFadeTransition(
+            context,
+            state,
+            const _MissingRouteDataScreen(
+              title: 'Setlist vazia',
+              message:
+                  'Aprove músicas no repertório da escala antes de abrir o modo culto.',
+            ),
+          );
+        }
+
+        return _buildFadeTransition(
+          context,
+          state,
+          CultSetlistPlayerScreen(
+            title: title,
+            songs: rawSongs,
+            initialIndex: initialIndex,
+          ),
         );
       },
     ),

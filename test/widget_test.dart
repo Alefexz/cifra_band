@@ -23,6 +23,14 @@ void main() {
     expect(transposed, 'Bb F Gm Eb');
   });
 
+  test('transposeCifra supports minor source and target keys', () {
+    const cifra = 'Am F C G\nGalileu, Galileu';
+
+    final transposed = TransposerEngine.transposeCifra(cifra, 'Am', 'Bbm');
+
+    expect(transposed, 'Bbm Gb Db Ab\nGalileu, Galileu');
+  });
+
   test('transposeCifra handles slash chords and chord extensions', () {
     const cifra = 'C/E D/F# Am7 G/B C7M A7(2)';
 
