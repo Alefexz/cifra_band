@@ -92,26 +92,34 @@ class _SetlistScreenState extends ConsumerState<SetlistScreen> {
                 ),
               ),
               const SizedBox(height: 12),
-              Row(
+              GridView.count(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisCount: 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: 1.55,
                 children: [
-                  Expanded(
-                    child: _buildQuickAccessCard(
-                      title: 'Cifras Favoritas',
-                      subtitle: 'Salvas neste aparelho',
-                      icon: Icons.favorite_rounded,
-                      iconColor: Colors.redAccent,
-                      onTap: () => context.push('/favorites'),
-                    ),
+                  _buildQuickAccessCard(
+                    title: 'Cifras Favoritas',
+                    subtitle: 'Salvas neste aparelho',
+                    icon: Icons.favorite_rounded,
+                    iconColor: Colors.redAccent,
+                    onTap: () => context.push('/favorites'),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: _buildQuickAccessCard(
-                      title: 'Histórico',
-                      subtitle: 'Últimas 20 tocadas',
-                      icon: Icons.history_rounded,
-                      iconColor: Colors.blueAccent,
-                      onTap: () => context.push('/played-history'),
-                    ),
+                  _buildQuickAccessCard(
+                    title: 'Histórico',
+                    subtitle: 'Últimas 20 tocadas',
+                    icon: Icons.history_rounded,
+                    iconColor: Colors.blueAccent,
+                    onTap: () => context.push('/played-history'),
+                  ),
+                  _buildQuickAccessCard(
+                    title: 'Offline',
+                    subtitle: 'Setlists baixadas',
+                    icon: Icons.offline_pin_rounded,
+                    iconColor: Colors.green,
+                    onTap: () => context.push('/offline-setlists'),
                   ),
                 ],
               ),

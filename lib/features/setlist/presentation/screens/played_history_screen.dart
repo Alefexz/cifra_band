@@ -84,6 +84,9 @@ class PlayedHistoryScreen extends StatelessWidget {
                       originalKey: data['originalKey']?.toString() ?? 'C',
                       shapeKey: data['shapeKey']?.toString(),
                       capo: data['capo']?.toString(),
+                      referenceUrl: data['referenceUrl']?.toString(),
+                      rehearsalNotes: data['rehearsalNotes']?.toString(),
+                      bpm: data['bpm']?.toString(),
                       content: data['content']?.toString() ?? '',
                       url: data['url']?.toString() ?? '',
                     );

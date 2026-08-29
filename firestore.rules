@@ -46,6 +46,7 @@ service cloud.firestore {
           'is_admin',
           'created_at',
           'fcmTokens',
+          'fcmTokenUpdatedAt',
           'friendCode',
           'friends'
         ])
@@ -55,7 +56,7 @@ service cloud.firestore {
 
     function selfProfileUpdate(userId) {
       return isSelf(userId)
-        && affectedOnly(['name', 'email', 'roles', 'fcmTokens', 'friendCode', 'friends'])
+        && affectedOnly(['name', 'email', 'roles', 'fcmTokens', 'fcmTokenUpdatedAt', 'friendCode', 'friends'])
         && request.resource.data.church_id == resource.data.church_id
         && request.resource.data.is_admin == resource.data.is_admin;
     }
@@ -136,6 +137,12 @@ service cloud.firestore {
 
       match /played_history/{songId} {
         allow read, create, update, delete: if isSelf(userId);
+      }
+
+      match /availability/{dateId} {
+        allow read: if isSelf(userId)
+          || sameChurch(userDoc(userId).data.church_id);
+        allow create, update, delete: if isSelf(userId);
       }
     }
 

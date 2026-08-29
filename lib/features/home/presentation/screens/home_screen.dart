@@ -17,6 +17,7 @@ import 'package:cifra_band/features/setlist/presentation/screens/setlist_screen.
 // ⚠️ IMPORTA O SEU NOVO SERVIÇO DE REGISTRO DE TOKENS
 import 'package:cifra_band/core/services/push_notification_service.dart';
 import 'package:cifra_band/core/services/api_notification.dart';
+import 'package:cifra_band/core/services/schedule_reminder_service.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -27,6 +28,7 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   int _currentIndex = 2;
+  String? _remindersSyncedChurchId;
 
   @override
   void initState() {
@@ -39,6 +41,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     setState(() {
       _currentIndex = index;
     });
+  }
+
+  void _syncScheduleReminders(String churchId) {
+    if (_remindersSyncedChurchId == churchId) return;
+    _remindersSyncedChurchId = churchId;
+    unawaited(
+      ScheduleReminderService.scheduleUpcomingReminders(churchId: churchId),
+    );
   }
 
   @override
@@ -319,6 +329,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   }
 
   Widget _buildDashboard(Map<String, dynamic> userData, String churchId) {
+    _syncScheduleReminders(churchId);
+
     final userName = userData['name'] ?? 'Músico';
     final isAdmin = userData['is_admin'] == true;
     final String currentUserId = FirebaseAuth.instance.currentUser!.uid;

@@ -8,14 +8,14 @@ class SongModel extends SongEntity {
     required super.originalKey,
     super.shapeKey,
     super.capo,
+    super.referenceUrl,
+    super.rehearsalNotes,
+    super.bpm,
     required super.content,
     required super.url,
   });
 
-  factory SongModel.fromMap(
-    Map<String, dynamic> map,
-    String documentId,
-  ) {
+  factory SongModel.fromMap(Map<String, dynamic> map, String documentId) {
     return SongModel(
       id: documentId,
       title: _string(map['title']),
@@ -23,6 +23,9 @@ class SongModel extends SongEntity {
       originalKey: _string(map['originalKey']),
       shapeKey: _stringOrNull(map['shapeKey']),
       capo: _stringOrNull(map['capo']),
+      referenceUrl: _stringOrNull(map['referenceUrl']),
+      rehearsalNotes: _stringOrNull(map['rehearsalNotes']),
+      bpm: _stringOrNull(map['bpm']),
       content: _string(map['content']),
       url: _string(map['url']),
     );
@@ -35,6 +38,9 @@ class SongModel extends SongEntity {
       'originalKey': originalKey,
       'shapeKey': shapeKey,
       'capo': capo,
+      'referenceUrl': referenceUrl,
+      'rehearsalNotes': rehearsalNotes,
+      'bpm': bpm,
       'content': content,
       'url': url,
     };

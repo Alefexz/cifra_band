@@ -22,6 +22,10 @@ class AddSongScreen extends ConsumerStatefulWidget {
 
 class _AddSongScreenState extends ConsumerState<AddSongScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final TextEditingController _referenceUrlController = TextEditingController();
+  final TextEditingController _bpmController = TextEditingController();
+  final TextEditingController _rehearsalNotesController =
+      TextEditingController();
   Timer? _debounce;
   bool _isLoading = false;
   bool _isSaving = false;
@@ -205,6 +209,9 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
           'shapeKey': song.shapeKey,
           'content': song.content, // A CIFRA SALVA AQUI!
           'url': song.url,
+          'referenceUrl': _referenceUrlController.text.trim(),
+          'bpm': _bpmController.text.trim(),
+          'rehearsalNotes': _rehearsalNotesController.text.trim(),
           'suggestedBy': userName,
           'upvotes': [currentUser.uid],
           'downvotes': [],
@@ -256,6 +263,9 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
               'capo': _selectedCapo,
               'content': song.content,
               'url': song.url,
+              'referenceUrl': _referenceUrlController.text.trim(),
+              'bpm': _bpmController.text.trim(),
+              'rehearsalNotes': _rehearsalNotesController.text.trim(),
               'created_by': currentUser.uid,
               'created_at': FieldValue.serverTimestamp(),
             });
@@ -293,6 +303,9 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
   void dispose() {
     _debounce?.cancel();
     _searchController.dispose();
+    _referenceUrlController.dispose();
+    _bpmController.dispose();
+    _rehearsalNotesController.dispose();
     super.dispose();
   }
 
@@ -775,6 +788,71 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
                   value: _selectedCapo,
                   items: _capoOptions,
                   onChanged: (val) => setState(() => _selectedCapo = val!),
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 16),
+          TextField(
+            controller: _referenceUrlController,
+            keyboardType: TextInputType.url,
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: 'Referência de ensaio',
+              hintText: 'Link do YouTube, Spotify ou versão oficial',
+              labelStyle: TextStyle(color: Colors.grey.shade500),
+              hintStyle: TextStyle(color: Colors.grey.shade700),
+              prefixIcon: const Icon(
+                Icons.link_rounded,
+                color: Colors.blueAccent,
+              ),
+              filled: true,
+              fillColor: const Color(0xFF16161E),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              SizedBox(
+                width: 110,
+                child: TextField(
+                  controller: _bpmController,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'BPM',
+                    labelStyle: TextStyle(color: Colors.grey.shade500),
+                    filled: true,
+                    fillColor: const Color(0xFF16161E),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextField(
+                  controller: _rehearsalNotesController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
+                    labelText: 'Observação',
+                    hintText: 'Ex: versão ao vivo, sobe no final',
+                    labelStyle: TextStyle(color: Colors.grey.shade500),
+                    hintStyle: TextStyle(color: Colors.grey.shade700),
+                    filled: true,
+                    fillColor: const Color(0xFF16161E),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                  ),
                 ),
               ),
             ],

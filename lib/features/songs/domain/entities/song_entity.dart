@@ -14,6 +14,9 @@ class SongEntity {
   /// Casa do capotraste.
   /// Ex.: 2
   final String? capo;
+  final String? referenceUrl;
+  final String? rehearsalNotes;
+  final String? bpm;
 
   final String content;
   final String url;
@@ -25,6 +28,9 @@ class SongEntity {
     required this.originalKey,
     this.shapeKey,
     this.capo,
+    this.referenceUrl,
+    this.rehearsalNotes,
+    this.bpm,
     required this.content,
     required this.url,
   });

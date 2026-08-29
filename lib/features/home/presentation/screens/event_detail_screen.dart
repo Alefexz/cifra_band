@@ -7,6 +7,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:cifra_band/features/songs/data/models/song_model.dart'; // ⚠️ IMPORT CRUCIAL
 import 'package:cifra_band/core/services/api_notification.dart';
+import 'package:cifra_band/core/services/availability_service.dart';
+import 'package:cifra_band/core/services/offline_setlist_service.dart';
 
 class EventDetailScreen extends StatefulWidget {
   final bool isAdmin;
@@ -246,6 +248,46 @@ class _EventDetailScreenState extends State<EventDetailScreen>
       );
   }
 
+  Future<void> _saveApprovedSongsOffline(
+    String scheduleTitle,
+    List<SongModel> songs,
+  ) async {
+    if (songs.isEmpty) return;
+
+    await OfflineSetlistService.saveCultSetlist(
+      scheduleId: widget.scheduleId,
+      title: scheduleTitle,
+      songs: songs,
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${songs.length} músicas salvas para tocar offline.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    }
+  }
+
+  Future<void> _reorderApprovedSongs(
+    List<dynamic> approved,
+    int oldIndex,
+    int newIndex,
+  ) async {
+    if (!widget.isAdmin) return;
+    if (newIndex > oldIndex) newIndex -= 1;
+
+    final updated = List<dynamic>.from(approved);
+    final item = updated.removeAt(oldIndex);
+    updated.insert(newIndex, item);
+
+    await FirebaseFirestore.instance
+        .collection('schedules')
+        .doc(widget.scheduleId)
+        .update({'approved_songs': updated});
+  }
+
   Future<void> _castVote(
     Map<String, dynamic> song,
     bool isUpvote,
@@ -377,10 +419,36 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     }
   }
 
+  Future<void> _openReferenceUrl(String rawUrl) async {
+    final value = rawUrl.trim();
+    if (value.isEmpty) return;
+
+    final uri = Uri.tryParse(
+      value.startsWith('http://') || value.startsWith('https://')
+          ? value
+          : 'https://$value',
+    );
+
+    if (uri == null || !await canLaunchUrl(uri)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Não foi possível abrir a referência.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
   void _showAddMemberModal(
     String churchId,
     List<dynamic> currentAssignments,
     String scheduleTitle,
+    DateTime? scheduleDate,
   ) {
     final availableRoles = [
       'Voz',
@@ -486,177 +554,210 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                           );
 
                         final users = snapshot.data?.docs ?? [];
-                        final availableUsers = users.where((user) {
-                          bool alreadyAssigned = currentAssignments.any(
-                            (assignment) => assignment['uid'] == user.id,
-                          );
-                          return !alreadyAssigned;
-                        }).toList();
 
-                        if (availableUsers.isEmpty) {
-                          return Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.person_off_rounded,
-                                  size: 64,
-                                  color: Colors.grey.shade700,
+                        return FutureBuilder<Set<String>>(
+                          future: scheduleDate == null
+                              ? Future.value(<String>{})
+                              : AvailabilityService.unavailableUserIds(
+                                  uids: users.map((user) => user.id),
+                                  date: scheduleDate,
                                 ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'Ninguém disponível',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade400,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 18,
+                          builder: (context, availabilitySnapshot) {
+                            if (availabilitySnapshot.connectionState ==
+                                ConnectionState.waiting) {
+                              return const Center(
+                                child: CircularProgressIndicator(
+                                  color: Colors.blueAccent,
+                                ),
+                              );
+                            }
+
+                            final unavailableUids =
+                                availabilitySnapshot.data ?? <String>{};
+                            final availableUsers = users.where((user) {
+                              final alreadyAssigned = currentAssignments.any(
+                                (assignment) => assignment['uid'] == user.id,
+                              );
+                              final unavailable = unavailableUids.contains(
+                                user.id,
+                              );
+                              return !alreadyAssigned && !unavailable;
+                            }).toList();
+
+                            if (availableUsers.isEmpty) {
+                              return Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.person_off_rounded,
+                                      size: 64,
+                                      color: Colors.grey.shade700,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'Ninguém disponível',
+                                      style: TextStyle(
+                                        color: Colors.grey.shade400,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 18,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'Todos já estão escalados, marcaram indisponibilidade\nou não têm essa função no perfil.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(color: Colors.grey),
+                                    ),
+                                    const SizedBox(height: 24),
+                                    TextButton(
+                                      onPressed: () => setModalState(
+                                        () => selectedRole = null,
+                                      ),
+                                      child: const Text(
+                                        'Voltar para Funções',
+                                        style: TextStyle(
+                                          color: Colors.blueAccent,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+
+                            return Column(
+                              children: [
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: TextButton.icon(
+                                    onPressed: () => setModalState(
+                                      () => selectedRole = null,
+                                    ),
+                                    icon: const Icon(
+                                      Icons.arrow_back_rounded,
+                                      color: Colors.blueAccent,
+                                      size: 16,
+                                    ),
+                                    label: const Text(
+                                      'Voltar',
+                                      style: TextStyle(
+                                        color: Colors.blueAccent,
+                                      ),
+                                    ),
                                   ),
                                 ),
-                                const SizedBox(height: 8),
-                                const Text(
-                                  'Todos que tocam isso já estão escalados\nou ninguém marcou essa função no perfil.',
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(color: Colors.grey),
-                                ),
-                                const SizedBox(height: 24),
-                                TextButton(
-                                  onPressed: () =>
-                                      setModalState(() => selectedRole = null),
-                                  child: const Text(
-                                    'Voltar para Funções',
-                                    style: TextStyle(color: Colors.blueAccent),
+                                Expanded(
+                                  child: ListView.separated(
+                                    physics: const BouncingScrollPhysics(),
+                                    itemCount: availableUsers.length,
+                                    separatorBuilder: (context, index) =>
+                                        const Divider(
+                                          color: Color(0xFF282832),
+                                          height: 1,
+                                        ),
+                                    itemBuilder: (context, index) {
+                                      final user = availableUsers[index];
+                                      final userName = user['name'] ?? 'Membro';
+
+                                      return ListTile(
+                                        contentPadding: EdgeInsets.zero,
+                                        leading: CircleAvatar(
+                                          backgroundColor: Colors.blueAccent
+                                              .withOpacity(0.2),
+                                          child: Text(
+                                            userName[0].toUpperCase(),
+                                            style: const TextStyle(
+                                              color: Colors.blueAccent,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ),
+                                        title: Text(
+                                          userName,
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        trailing: ElevatedButton(
+                                          onPressed: () async {
+                                            Navigator.pop(context);
+                                            try {
+                                              await FirebaseFirestore.instance
+                                                  .collection('schedules')
+                                                  .doc(widget.scheduleId)
+                                                  .update({
+                                                    'team_assignments':
+                                                        FieldValue.arrayUnion([
+                                                          {
+                                                            'uid': user.id,
+                                                            'name': userName,
+                                                            'role':
+                                                                selectedRole,
+                                                            'status': 'pending',
+                                                          },
+                                                        ]),
+                                                  });
+                                              await ApiNotification.notificarEscalado(
+                                                user.id,
+                                                scheduleTitle,
+                                                selectedRole ?? 'Membro',
+                                              );
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(
+                                                  this.context,
+                                                ).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text(
+                                                      '$userName escalado(a)!',
+                                                    ),
+                                                    backgroundColor:
+                                                        Colors.green,
+                                                  ),
+                                                );
+                                              }
+                                            } catch (e) {
+                                              if (mounted) {
+                                                ScaffoldMessenger.of(
+                                                  this.context,
+                                                ).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text(
+                                                      'Erro ao escalar: $e',
+                                                    ),
+                                                    backgroundColor:
+                                                        Colors.redAccent,
+                                                  ),
+                                                );
+                                              }
+                                            }
+                                          },
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.blueAccent,
+                                            foregroundColor: Colors.white,
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                            ),
+                                          ),
+                                          child: const Text(
+                                            'Escalar',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ),
                               ],
-                            ),
-                          );
-                        }
-
-                        return Column(
-                          children: [
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: TextButton.icon(
-                                onPressed: () =>
-                                    setModalState(() => selectedRole = null),
-                                icon: const Icon(
-                                  Icons.arrow_back_rounded,
-                                  color: Colors.blueAccent,
-                                  size: 16,
-                                ),
-                                label: const Text(
-                                  'Voltar',
-                                  style: TextStyle(color: Colors.blueAccent),
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: ListView.separated(
-                                physics: const BouncingScrollPhysics(),
-                                itemCount: availableUsers.length,
-                                separatorBuilder: (context, index) =>
-                                    const Divider(
-                                      color: Color(0xFF282832),
-                                      height: 1,
-                                    ),
-                                itemBuilder: (context, index) {
-                                  final user = availableUsers[index];
-                                  final userName = user['name'] ?? 'Membro';
-
-                                  return ListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: CircleAvatar(
-                                      backgroundColor: Colors.blueAccent
-                                          .withOpacity(0.2),
-                                      child: Text(
-                                        userName[0].toUpperCase(),
-                                        style: const TextStyle(
-                                          color: Colors.blueAccent,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                    title: Text(
-                                      userName,
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    trailing: ElevatedButton(
-                                      onPressed: () async {
-                                        Navigator.pop(context);
-                                        try {
-                                          await FirebaseFirestore.instance
-                                              .collection('schedules')
-                                              .doc(widget.scheduleId)
-                                              .update({
-                                                'team_assignments':
-                                                    FieldValue.arrayUnion([
-                                                      {
-                                                        'uid': user.id,
-                                                        'name': userName,
-                                                        'role': selectedRole,
-                                                        'status': 'pending',
-                                                      },
-                                                    ]),
-                                              });
-                                          await ApiNotification.notificarEscalado(
-                                            user.id,
-                                            scheduleTitle,
-                                            selectedRole ?? 'Membro',
-                                          );
-                                          if (mounted) {
-                                            ScaffoldMessenger.of(
-                                              this.context,
-                                            ).showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  '$userName escalado(a)!',
-                                                ),
-                                                backgroundColor: Colors.green,
-                                              ),
-                                            );
-                                          }
-                                        } catch (e) {
-                                          if (mounted) {
-                                            ScaffoldMessenger.of(
-                                              this.context,
-                                            ).showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  'Erro ao escalar: $e',
-                                                ),
-                                                backgroundColor:
-                                                    Colors.redAccent,
-                                              ),
-                                            );
-                                          }
-                                        }
-                                      },
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.blueAccent,
-                                        foregroundColor: Colors.white,
-                                        visualDensity: VisualDensity.compact,
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(
-                                            8,
-                                          ),
-                                        ),
-                                      ),
-                                      child: const Text(
-                                        'Escalar',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ],
+                            );
+                          },
                         );
                       },
                     ),
@@ -811,7 +912,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                 teamAssignments,
                 title,
               ),
-              _buildEquipeTab(churchId, teamAssignments, title),
+              _buildEquipeTab(churchId, teamAssignments, title, timestampDate),
             ],
           ),
 
@@ -871,33 +972,95 @@ class _EventDetailScreenState extends State<EventDetailScreen>
         else ...[
           Padding(
             padding: const EdgeInsets.only(bottom: 14),
-            child: ElevatedButton.icon(
-              onPressed: () => context.push(
-                '/cult-setlist',
-                extra: {'title': scheduleTitle, 'songs': approvedSongModels},
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blueAccent,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () => context.push(
+                    '/cult-setlist',
+                    extra: {
+                      'title': scheduleTitle,
+                      'songs': approvedSongModels,
+                    },
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.playlist_play_rounded),
+                  label: Text(
+                    'Tocar Setlist do Culto (${approvedSongModels.length})',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
                 ),
-              ),
-              icon: const Icon(Icons.playlist_play_rounded),
-              label: Text(
-                'Tocar Setlist do Culto (${approvedSongModels.length})',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () => _saveApprovedSongsOffline(
+                    scheduleTitle,
+                    approvedSongModels,
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.green,
+                    side: BorderSide(color: Colors.green.withOpacity(0.5)),
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  icon: const Icon(Icons.download_done_rounded),
+                  label: const Text(
+                    'Baixar Setlist Offline',
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                if (widget.isAdmin && approved.length > 1) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Segure e arraste as músicas para ajustar a ordem do culto.',
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                  ),
+                ],
+              ],
             ),
           ),
-          ...approved.map(
-            (song) => _buildSongCard(
-              songMap: song as Map<String, dynamic>,
-              isApproved: true,
-              team: teamAssignments,
+          if (widget.isAdmin && approved.length > 1)
+            ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: approved.length,
+              onReorder: (oldIndex, newIndex) =>
+                  _reorderApprovedSongs(approved, oldIndex, newIndex),
+              itemBuilder: (context, index) {
+                final song = approved[index] as Map<String, dynamic>;
+                return ReorderableDragStartListener(
+                  key: ValueKey(
+                    '${song['title']}_${song['artist']}_${song['suggestedBy']}_$index',
+                  ),
+                  index: index,
+                  child: _buildSongCard(
+                    songMap: song,
+                    isApproved: true,
+                    team: teamAssignments,
+                    orderNumber: index + 1,
+                    canDrag: true,
+                  ),
+                );
+              },
+            )
+          else
+            ...approved.asMap().entries.map(
+              (entry) => _buildSongCard(
+                songMap: entry.value as Map<String, dynamic>,
+                isApproved: true,
+                team: teamAssignments,
+                orderNumber: entry.key + 1,
+              ),
             ),
-          ),
         ],
 
         const SizedBox(height: 24),
@@ -941,6 +1104,9 @@ class _EventDetailScreenState extends State<EventDetailScreen>
           songMap['originalKey']?.toString() ??
           songMap['key']?.toString() ??
           'C',
+      referenceUrl: songMap['referenceUrl']?.toString(),
+      rehearsalNotes: songMap['rehearsalNotes']?.toString(),
+      bpm: songMap['bpm']?.toString(),
       content:
           songMap['content']?.toString() ??
           '⚠️ ERRO: A cifra não foi salva no banco de dados da Escala.\n\nExclua esta música e adicione novamente para corrigir este problema!',
@@ -954,6 +1120,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     String churchId,
     List<dynamic> teamAssignments,
     String scheduleTitle,
+    Timestamp? scheduleTimestamp,
   ) {
     return ListView(
       padding: const EdgeInsets.all(20),
@@ -1002,8 +1169,12 @@ class _EventDetailScreenState extends State<EventDetailScreen>
 
         if (widget.isAdmin)
           OutlinedButton.icon(
-            onPressed: () =>
-                _showAddMemberModal(churchId, teamAssignments, scheduleTitle),
+            onPressed: () => _showAddMemberModal(
+              churchId,
+              teamAssignments,
+              scheduleTitle,
+              scheduleTimestamp?.toDate(),
+            ),
             style: OutlinedButton.styleFrom(
               foregroundColor: Colors.blueAccent,
               side: BorderSide(color: Colors.blueAccent.withOpacity(0.5)),
@@ -1069,11 +1240,16 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     required Map<String, dynamic> songMap,
     required bool isApproved,
     required List<dynamic> team,
+    int? orderNumber,
+    bool canDrag = false,
   }) {
     final title = songMap['title'] ?? 'Música desconhecida';
     final artist = songMap['artist'] ?? 'Artista desconhecido';
     final keyNote = songMap['key'] ?? 'C';
     final suggestedBy = songMap['suggestedBy'] ?? 'Membro';
+    final referenceUrl = songMap['referenceUrl']?.toString().trim() ?? '';
+    final bpm = songMap['bpm']?.toString().trim() ?? '';
+    final notes = songMap['rehearsalNotes']?.toString().trim() ?? '';
 
     final List<dynamic> upvotes = songMap['upvotes'] ?? [];
     final List<dynamic> downvotes = songMap['downvotes'] ?? [];
@@ -1148,6 +1324,23 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                     ),
                   ),
 
+                  if (orderNumber != null) ...[
+                    const SizedBox(width: 8),
+                    Text(
+                      '#$orderNumber',
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                  if (canDrag) ...[
+                    const SizedBox(width: 4),
+                    Icon(
+                      Icons.drag_handle_rounded,
+                      color: Colors.grey.shade600,
+                    ),
+                  ],
                   if (isApproved && widget.isAdmin)
                     IconButton(
                       icon: const Icon(
@@ -1163,6 +1356,46 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                     ),
                 ],
               ),
+
+              if (referenceUrl.isNotEmpty ||
+                  bpm.isNotEmpty ||
+                  notes.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (referenceUrl.isNotEmpty)
+                      ActionChip(
+                        avatar: const Icon(Icons.play_circle_outline_rounded),
+                        label: const Text('Referência'),
+                        backgroundColor: Colors.blueAccent.withOpacity(0.14),
+                        labelStyle: const TextStyle(color: Colors.blueAccent),
+                        onPressed: () => _openReferenceUrl(referenceUrl),
+                      ),
+                    if (bpm.isNotEmpty)
+                      Chip(
+                        avatar: const Icon(
+                          Icons.speed_rounded,
+                          color: Colors.orange,
+                        ),
+                        label: Text('$bpm BPM'),
+                        backgroundColor: Colors.orange.withOpacity(0.12),
+                        labelStyle: const TextStyle(color: Colors.orange),
+                      ),
+                    if (notes.isNotEmpty)
+                      Chip(
+                        avatar: const Icon(
+                          Icons.sticky_note_2_outlined,
+                          color: Colors.grey,
+                        ),
+                        label: Text(notes),
+                        backgroundColor: Colors.white.withOpacity(0.06),
+                        labelStyle: const TextStyle(color: Colors.white70),
+                      ),
+                  ],
+                ),
+              ],
 
               if (!isApproved) ...[
                 const SizedBox(height: 16),

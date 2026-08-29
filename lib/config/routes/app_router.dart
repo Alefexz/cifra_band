@@ -10,11 +10,13 @@ import 'package:cifra_band/features/home/presentation/screens/create_ministry_sc
 import 'package:cifra_band/features/home/presentation/screens/event_detail_screen.dart';
 import 'package:cifra_band/features/home/presentation/screens/add_friend_screen.dart'; // ⚠️ IMPORTAÇÃO DA NOVA TELA AQUI
 import 'package:cifra_band/features/home/presentation/screens/cult_setlist_player_screen.dart';
+import 'package:cifra_band/features/home/presentation/screens/availability_screen.dart';
 
 import 'package:cifra_band/features/setlist/domain/entities/setlist_entity.dart';
 import 'package:cifra_band/features/setlist/presentation/screens/setlist_detail_screen.dart';
 import 'package:cifra_band/features/setlist/presentation/screens/favorite_songs_screen.dart';
 import 'package:cifra_band/features/setlist/presentation/screens/played_history_screen.dart';
+import 'package:cifra_band/features/setlist/presentation/screens/offline_setlists_screen.dart';
 
 import 'package:cifra_band/features/songs/presentation/screens/add_song_screen.dart';
 import 'package:cifra_band/features/songs/presentation/screens/cifra_screen.dart';
@@ -102,11 +104,21 @@ final appRouter = GoRouter(
       pageBuilder: (context, state) =>
           _buildFadeTransition(context, state, const PlayedHistoryScreen()),
     ),
+    GoRoute(
+      path: '/offline-setlists',
+      pageBuilder: (context, state) =>
+          _buildFadeTransition(context, state, const OfflineSetlistsScreen()),
+    ),
     // ⚠️ NOVA ROTA AQUI!
     GoRoute(
       path: '/add-friend',
       pageBuilder: (context, state) =>
           _buildFadeTransition(context, state, const AddFriendScreen()),
+    ),
+    GoRoute(
+      path: '/availability',
+      pageBuilder: (context, state) =>
+          _buildFadeTransition(context, state, const AvailabilityScreen()),
     ),
     GoRoute(
       path: '/add-song',
@@ -140,7 +152,11 @@ final appRouter = GoRouter(
             ? args['initialIndex'] as int
             : 0;
 
-        if (rawSongs is! List<SongModel> || rawSongs.isEmpty) {
+        final songs = rawSongs is List
+            ? rawSongs.whereType<SongModel>().toList()
+            : <SongModel>[];
+
+        if (songs.isEmpty) {
           return _buildFadeTransition(
             context,
             state,
@@ -157,7 +173,7 @@ final appRouter = GoRouter(
           state,
           CultSetlistPlayerScreen(
             title: title,
-            songs: rawSongs,
+            songs: songs,
             initialIndex: initialIndex,
           ),
         );
@@ -186,6 +202,9 @@ final appRouter = GoRouter(
                 originalKey: extra.originalKey,
                 shapeKey: extra.shapeKey,
                 capo: extra.capo,
+                referenceUrl: extra.referenceUrl,
+                rehearsalNotes: extra.rehearsalNotes,
+                bpm: extra.bpm,
                 content: extra.content,
                 url: extra.url,
               );

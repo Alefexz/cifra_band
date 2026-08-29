@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:cifra_band/core/services/played_history_service.dart';
 import '../../data/models/song_model.dart';
 import '../../domain/transposer_engine.dart';
@@ -90,6 +91,9 @@ class _CifraScreenState extends State<CifraScreen> {
       'content': widget.song.content,
       'capo': widget.song.capo,
       'shapeKey': widget.song.shapeKey,
+      'referenceUrl': widget.song.referenceUrl,
+      'rehearsalNotes': widget.song.rehearsalNotes,
+      'bpm': widget.song.bpm,
       'url': widget.song.url,
     };
     final currentSongJson = json.encode(currentSongMap);
@@ -293,6 +297,31 @@ class _CifraScreenState extends State<CifraScreen> {
     if (targetPitch.isEmpty) return;
     if (targetPitch == _currentPitch) return;
     setState(() => _currentPitch = targetPitch);
+  }
+
+  Future<void> _openReferenceUrl() async {
+    final value = widget.song.referenceUrl?.trim() ?? '';
+    if (value.isEmpty) return;
+
+    final uri = Uri.tryParse(
+      value.startsWith('http://') || value.startsWith('https://')
+          ? value
+          : 'https://$value',
+    );
+
+    if (uri == null || !await canLaunchUrl(uri)) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Não foi possível abrir a referência.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   // ==========================================================
@@ -925,6 +954,48 @@ class _CifraScreenState extends State<CifraScreen> {
                     ],
                   ],
                 ),
+
+                if ((widget.song.referenceUrl?.trim().isNotEmpty ?? false) ||
+                    (widget.song.bpm?.trim().isNotEmpty ?? false) ||
+                    (widget.song.rehearsalNotes?.trim().isNotEmpty ??
+                        false)) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (widget.song.referenceUrl?.trim().isNotEmpty ?? false)
+                        ActionChip(
+                          avatar: const Icon(Icons.play_circle_outline_rounded),
+                          label: const Text('Referência'),
+                          backgroundColor: Colors.blueAccent.withOpacity(0.14),
+                          labelStyle: const TextStyle(color: Colors.blueAccent),
+                          onPressed: _openReferenceUrl,
+                        ),
+                      if (widget.song.bpm?.trim().isNotEmpty ?? false)
+                        Chip(
+                          avatar: const Icon(
+                            Icons.speed_rounded,
+                            color: Colors.orange,
+                          ),
+                          label: Text('${widget.song.bpm} BPM'),
+                          backgroundColor: Colors.orange.withOpacity(0.12),
+                          labelStyle: const TextStyle(color: Colors.orange),
+                        ),
+                      if (widget.song.rehearsalNotes?.trim().isNotEmpty ??
+                          false)
+                        Chip(
+                          avatar: const Icon(
+                            Icons.sticky_note_2_outlined,
+                            color: Colors.grey,
+                          ),
+                          label: Text(widget.song.rehearsalNotes!),
+                          backgroundColor: Colors.white.withOpacity(0.06),
+                          labelStyle: const TextStyle(color: Colors.white70),
+                        ),
+                    ],
+                  ),
+                ],
 
                 const SizedBox(height: 24),
                 _buildRichCifra(),

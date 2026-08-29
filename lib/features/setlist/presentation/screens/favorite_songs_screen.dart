@@ -4,7 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../../../songs/data/models/song_model.dart'; 
+import '../../../songs/data/models/song_model.dart';
 
 class FavoriteSongsScreen extends StatefulWidget {
   const FavoriteSongsScreen({super.key});
@@ -31,16 +31,21 @@ class _FavoriteSongsScreenState extends State<FavoriteSongsScreen> {
     for (String songJson in favoriteList) {
       try {
         final Map<String, dynamic> data = json.decode(songJson);
-        loadedSongs.add(SongModel(
-          id: data['id'] ?? '',
-          title: data['title'] ?? 'Sem título',
-          artist: data['artist'] ?? 'Artista desconhecido',
-          originalKey: data['originalKey'] ?? '',
-          content: data['content'] ?? '',
-          capo: data['capo'],
-          shapeKey: data['shapeKey'],
-          url: data['url'] ?? '',
-        ));
+        loadedSongs.add(
+          SongModel(
+            id: data['id'] ?? '',
+            title: data['title'] ?? 'Sem título',
+            artist: data['artist'] ?? 'Artista desconhecido',
+            originalKey: data['originalKey'] ?? '',
+            content: data['content'] ?? '',
+            capo: data['capo'],
+            shapeKey: data['shapeKey'],
+            referenceUrl: data['referenceUrl'],
+            rehearsalNotes: data['rehearsalNotes'],
+            bpm: data['bpm'],
+            url: data['url'] ?? '',
+          ),
+        );
       } catch (e) {
         debugPrint('Erro ao decodificar cifra favorita: $e');
       }
@@ -63,10 +68,13 @@ class _FavoriteSongsScreenState extends State<FavoriteSongsScreen> {
 
     await prefs.setStringList('favorite_songs', favoriteList);
     _loadFavorites(); // Recarrega a lista
-    
+
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cifra removida dos favoritos.'), backgroundColor: Colors.grey),
+        const SnackBar(
+          content: Text('Cifra removida dos favoritos.'),
+          backgroundColor: Colors.grey,
+        ),
       );
     }
   }
@@ -79,16 +87,24 @@ class _FavoriteSongsScreenState extends State<FavoriteSongsScreen> {
         backgroundColor: const Color(0xFF0D0D12),
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white),
+          icon: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: Colors.white,
+          ),
           onPressed: () => context.pop(),
         ),
-        title: const Text('Cifras Favoritas', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Cifras Favoritas',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.blueAccent))
+          ? const Center(
+              child: CircularProgressIndicator(color: Colors.blueAccent),
+            )
           : _favoriteSongs.isEmpty
-              ? _buildEmptyState()
-              : _buildList(),
+          ? _buildEmptyState()
+          : _buildList(),
     );
   }
 
@@ -97,14 +113,25 @@ class _FavoriteSongsScreenState extends State<FavoriteSongsScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.heart_broken_rounded, color: Colors.grey.shade800, size: 80),
+          Icon(
+            Icons.heart_broken_rounded,
+            color: Colors.grey.shade800,
+            size: 80,
+          ),
           const SizedBox(height: 16),
-          const Text('Nenhuma cifra salva offline.', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text(
+            'Nenhuma cifra salva offline.',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
           const SizedBox(height: 8),
           Text(
-            'As cifras que você favoritar no Modo Palco\naparecerão aqui para tocar sem internet.', 
-            textAlign: TextAlign.center, 
-            style: TextStyle(color: Colors.grey.shade500)
+            'As cifras que você favoritar no Modo Palco\naparecerão aqui para tocar sem internet.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.grey.shade500),
           ),
         ],
       ),
@@ -120,18 +147,42 @@ class _FavoriteSongsScreenState extends State<FavoriteSongsScreen> {
       itemBuilder: (context, index) {
         final song = _favoriteSongs[index];
         return Container(
-          decoration: BoxDecoration(color: const Color(0xFF16161E), borderRadius: BorderRadius.circular(16)),
+          decoration: BoxDecoration(
+            color: const Color(0xFF16161E),
+            borderRadius: BorderRadius.circular(16),
+          ),
           child: ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 8,
+            ),
             leading: Container(
               padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.1), shape: BoxShape.circle),
-              child: const Icon(Icons.favorite_rounded, color: Colors.redAccent),
+              decoration: BoxDecoration(
+                color: Colors.redAccent.withOpacity(0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.favorite_rounded,
+                color: Colors.redAccent,
+              ),
             ),
-            title: Text(song.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-            subtitle: Text('${song.artist} • Tom: ${song.originalKey}', style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+            title: Text(
+              song.title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            subtitle: Text(
+              '${song.artist} • Tom: ${song.originalKey}',
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+            ),
             trailing: IconButton(
-              icon: const Icon(Icons.delete_outline_rounded, color: Colors.grey),
+              icon: const Icon(
+                Icons.delete_outline_rounded,
+                color: Colors.grey,
+              ),
               onPressed: () => _removeFavorite(song.id),
             ),
             onTap: () {
