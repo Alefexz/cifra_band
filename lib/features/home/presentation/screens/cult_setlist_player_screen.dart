@@ -53,6 +53,15 @@ class _CultSetlistPlayerScreenState extends State<CultSetlistPlayerScreen> {
     unawaited(PlayedHistoryService.recordSong(widget.songs[index]));
   }
 
+  void _goToPage(int index) {
+    if (index < 0 || index >= widget.songs.length) return;
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (widget.songs.isEmpty) {
@@ -127,17 +136,29 @@ class _CultSetlistPlayerScreenState extends State<CultSetlistPlayerScreen> {
               currentIndex: _currentIndex,
             ),
             Expanded(
-              child: PageView.builder(
-                controller: _pageController,
-                itemCount: widget.songs.length,
-                onPageChanged: _onPageChanged,
-                itemBuilder: (context, index) {
-                  return CifraScreen(
-                    song: widget.songs[index],
-                    embedded: true,
-                    recordHistory: false,
-                  );
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onHorizontalDragEnd: (details) {
+                  final velocity = details.primaryVelocity ?? 0;
+                  if (velocity < -250) {
+                    _goToPage(_currentIndex + 1);
+                  } else if (velocity > 250) {
+                    _goToPage(_currentIndex - 1);
+                  }
                 },
+                child: PageView.builder(
+                  controller: _pageController,
+                  itemCount: widget.songs.length,
+                  onPageChanged: _onPageChanged,
+                  itemBuilder: (context, index) {
+                    return CifraScreen(
+                      song: widget.songs[index],
+                      embedded: true,
+                      recordHistory: false,
+                      allowHorizontalCifraScroll: false,
+                    );
+                  },
+                ),
               ),
             ),
           ],

@@ -15,12 +15,14 @@ class CifraScreen extends StatefulWidget {
   final SongModel song;
   final bool embedded;
   final bool recordHistory;
+  final bool allowHorizontalCifraScroll;
 
   const CifraScreen({
     super.key,
     required this.song,
     this.embedded = false,
     this.recordHistory = true,
+    this.allowHorizontalCifraScroll = true,
   });
 
   @override
@@ -1111,7 +1113,9 @@ class _CifraScreenState extends State<CifraScreen> {
     // ⚠️ ADICIONADO: Scroll Horizontal para a tablatura não quebrar de linha no celular
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      physics: const BouncingScrollPhysics(),
+      physics: widget.allowHorizontalCifraScroll
+          ? const BouncingScrollPhysics()
+          : const NeverScrollableScrollPhysics(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: widgets,
