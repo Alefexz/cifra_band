@@ -60,13 +60,16 @@ class SongScraperDatasource {
         debugPrint('⚡ Encontrada no cache global — resposta instantânea.');
         _wakeRenderInBackground(apiUrl);
         final data = snapshot.data()!;
+        final originalKey = _normalizeKey(_clean(data['originalKey']));
+        final shapeKey = _normalizeKey(_clean(data['shapeKey']));
+        final capo = _normalizeCapo(_clean(data['capo']));
         return SongModel(
           id: data['id'] ?? docId,
           title: data['title'] ?? track,
           artist: data['artist'] ?? artist,
-          originalKey: data['originalKey'] ?? 'C',
-          shapeKey: data['shapeKey'],
-          capo: data['capo'],
+          originalKey: originalKey.isEmpty ? 'C' : originalKey,
+          shapeKey: shapeKey.isEmpty ? null : shapeKey,
+          capo: capo.isEmpty ? null : capo,
           content: data['content'] ?? '',
           url: data['url'] ?? '',
         );
@@ -194,6 +197,20 @@ class SongScraperDatasource {
     String key = value.trim();
     key = key.replaceAll('♯', '#').replaceAll('♭', 'b');
     key = key.replaceFirst(RegExp(r'^tom\s*:\s*', caseSensitive: false), '');
-    return key.trim();
+    final match = RegExp(
+      r'(?:^|[^A-Za-z])([A-Ga-g])([#b])?(m)?(?=$|[^A-Za-z])',
+    ).firstMatch(key);
+    if (match == null) return key.trim();
+
+    final root = match.group(1)!.toUpperCase();
+    final accidental = match.group(2) ?? '';
+    final minor = match.group(3) == null ? '' : 'm';
+    var normalized = '$root$accidental';
+
+    if (normalized == 'A#') normalized = 'Bb';
+    if (normalized == 'D#') normalized = 'Eb';
+    if (normalized == 'G#') normalized = 'Ab';
+
+    return '$normalized$minor';
   }
 }

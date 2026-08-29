@@ -1,24 +1,112 @@
 // lib/features/songs/domain/transposer_engine.dart
 
 class TransposerEngine {
-  static const List<String> _sharpScale = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-  static const List<String> _flatScale = ['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
+  static const List<String> _sharpScale = [
+    'C',
+    'C#',
+    'D',
+    'D#',
+    'E',
+    'F',
+    'F#',
+    'G',
+    'G#',
+    'A',
+    'A#',
+    'B',
+  ];
+  static const List<String> _flatScale = [
+    'C',
+    'Db',
+    'D',
+    'Eb',
+    'E',
+    'F',
+    'Gb',
+    'G',
+    'Ab',
+    'A',
+    'Bb',
+    'B',
+  ];
 
-  static const Set<String> _flatKeys = {'F','Bb','Eb','Ab','Db','Gb','Dm','Gm','Cm','Fm','Bbm','Ebm'};
+  static const Set<String> _flatKeys = {
+    'F',
+    'Bb',
+    'Eb',
+    'Ab',
+    'Db',
+    'Gb',
+    'Dm',
+    'Gm',
+    'Cm',
+    'Fm',
+    'Bbm',
+    'Ebm',
+  };
+
+  static const List<String> majorToneOptions = [
+    'A',
+    'Bb',
+    'B',
+    'C',
+    'Db',
+    'D',
+    'Eb',
+    'E',
+    'F',
+    'F#',
+    'G',
+    'Ab',
+  ];
+
+  static const List<String> minorToneOptions = [
+    'Am',
+    'Bbm',
+    'Bm',
+    'Cm',
+    'C#m',
+    'Dm',
+    'Ebm',
+    'Em',
+    'Fm',
+    'F#m',
+    'Gm',
+    'G#m',
+  ];
 
   static String normalizeKey(String key) {
     var value = key.trim();
     if (value.isEmpty) return '';
-    value = value.replaceAll('♯','#').replaceAll('♭','b');
-    if (value == 'A#') value = 'Bb';
-    if (value == 'D#') value = 'Eb';
-    if (value == 'G#') value = 'Ab';
-    if (value == 'C#') value = 'C#';
-    if (value == 'F#') value = 'F#';
-    return value;
+    value = value.replaceAll('♯', '#').replaceAll('♭', 'b');
+    value = value.replaceFirst(
+      RegExp(r'^tom\s*:\s*', caseSensitive: false),
+      '',
+    );
+
+    final match = RegExp(
+      r'(?:^|[^A-Za-z])([A-Ga-g])([#b])?(m)?(?=$|[^A-Za-z])',
+    ).firstMatch(value);
+    if (match == null) return value;
+
+    final root = match.group(1)!.toUpperCase();
+    final accidental = match.group(2) ?? '';
+    final minor = match.group(3) == null ? '' : 'm';
+    var normalized = '$root$accidental';
+
+    if (normalized == 'A#') normalized = 'Bb';
+    if (normalized == 'D#') normalized = 'Eb';
+    if (normalized == 'G#') normalized = 'Ab';
+
+    return '$normalized$minor';
   }
 
-  static bool _isMinorKey(String key) => key.trim().toLowerCase().endsWith('m');
+  static bool isMinorKey(String key) {
+    final value = normalizeKey(key);
+    return RegExp(r'^[A-G][#b]?m$').hasMatch(value);
+  }
+
+  static bool _isMinorKey(String key) => isMinorKey(key);
 
   static String _removeMinor(String key) {
     final value = normalizeKey(key);
@@ -28,19 +116,37 @@ class TransposerEngine {
 
   static int _noteToIndex(String note) {
     switch (normalizeKey(note)) {
-      case 'C': return 0;
-      case 'C#': case 'Db': return 1;
-      case 'D': return 2;
-      case 'D#': case 'Eb': return 3;
-      case 'E': return 4;
-      case 'F': return 5;
-      case 'F#': case 'Gb': return 6;
-      case 'G': return 7;
-      case 'G#': case 'Ab': return 8;
-      case 'A': return 9;
-      case 'A#': case 'Bb': return 10;
-      case 'B': return 11;
-      default: return -1;
+      case 'C':
+        return 0;
+      case 'C#':
+      case 'Db':
+        return 1;
+      case 'D':
+        return 2;
+      case 'D#':
+      case 'Eb':
+        return 3;
+      case 'E':
+        return 4;
+      case 'F':
+        return 5;
+      case 'F#':
+      case 'Gb':
+        return 6;
+      case 'G':
+        return 7;
+      case 'G#':
+      case 'Ab':
+        return 8;
+      case 'A':
+        return 9;
+      case 'A#':
+      case 'Bb':
+        return 10;
+      case 'B':
+        return 11;
+      default:
+        return -1;
     }
   }
 
@@ -69,6 +175,38 @@ class TransposerEngine {
     return _isMinorKey(key) ? '${targetNote}m' : targetNote;
   }
 
+  static String resolveDisplayedKey({
+    required String originalKey,
+    String? shapeKey,
+    String? capo,
+  }) {
+    final original = normalizeKey(originalKey);
+    final shape = normalizeKey(shapeKey ?? '');
+    final capoValue =
+        int.tryParse(RegExp(r'\d+').firstMatch(capo ?? '')?.group(0) ?? '') ??
+        0;
+
+    if (isMinorKey(shape) && !isMinorKey(original) && capoValue > 0) {
+      final inferred = transposeKey(shape, capoValue);
+      final originalRoot = _removeMinor(original);
+      if (_noteToIndex(originalRoot) == _noteToIndex(_removeMinor(inferred))) {
+        return '${originalRoot}m';
+      }
+      return inferred;
+    }
+
+    if (original.isNotEmpty) return original;
+    if (shape.isNotEmpty) return shape;
+    return 'C';
+  }
+
+  static List<String> toneOptionsForKey(String key, {String? shapeKey}) {
+    if (isMinorKey(key) || isMinorKey(shapeKey ?? '')) {
+      return minorToneOptions;
+    }
+    return majorToneOptions;
+  }
+
   static int getSemitonesDifference(String currentKey, String targetKey) {
     final current = _noteToIndex(_removeMinor(currentKey));
     final target = _noteToIndex(_removeMinor(targetKey));
@@ -76,15 +214,17 @@ class TransposerEngine {
     return target - current;
   }
 
-  // ⚠️ SOLUÇÃO 2: REGRA AMPLIADA PARA ACORDES BRASILEIROS (C7M, A7(2), etc)
+  // Covers common Brazilian chord notation: C7M, A7(2), G4, C#m7(b5), Am*.
   static final RegExp chordTokenRegex = RegExp(
-    r'^[A-G][#b]?(?:m|M|maj|min|dim|aug|sus|add|\d|[#b+-]|\(|\)|/[A-G][#b]?)*$'
+    r'^[A-G][#b]?(?:m|M|maj|min|dim|aug|sus|add|\d|[#b+\-()]|[º°ø*]|/[A-G][#b]?)*$',
   );
 
   static bool isChordToken(String token) {
     final value = token.trim();
     if (value.isEmpty) return false;
-    final cleaned = value.replaceAll(RegExp(r'^[,;:]+'), '').replaceAll(RegExp(r'[,;:]+$'), '');
+    final cleaned = value
+        .replaceAll(RegExp(r'^[,;:]+'), '')
+        .replaceAll(RegExp(r'[,;:]+$'), '');
     return chordTokenRegex.hasMatch(cleaned);
   }
 
@@ -92,7 +232,11 @@ class TransposerEngine {
     final trimmed = line.trim();
     if (trimmed.isEmpty) return false;
     if (RegExp(r'^[eEBGDA]\|').hasMatch(trimmed)) return true;
-    if (trimmed.contains('|---') || trimmed.contains('|--') || trimmed.contains('|-')) return true;
+    if (trimmed.contains('|---') ||
+        trimmed.contains('|--') ||
+        trimmed.contains('|-')) {
+      return true;
+    }
     return false;
   }
 
@@ -107,7 +251,11 @@ class TransposerEngine {
     return _formatNote(index + semitones, preferFlats: preferFlats);
   }
 
-  static String transposeChord(String chord, int semitones, {bool preferFlats = false}) {
+  static String transposeChord(
+    String chord,
+    int semitones, {
+    bool preferFlats = false,
+  }) {
     final value = chord.trim();
     if (value.isEmpty || semitones == 0) return value;
     if (!isChordToken(value)) return value;
@@ -148,8 +296,11 @@ class TransposerEngine {
     return chords > 0 && chords >= (tokens.length / 2);
   }
 
-  static String _transposeChordLine(String line, int semitones, {bool preferFlats = false}) {
-    // ⚠️ SOLUÇÃO 1: FIM DOS ACORDES GRUDADOS! Substitui no lugar, sem apagar nenhum espaço.
+  static String _transposeChordLine(
+    String line,
+    int semitones, {
+    bool preferFlats = false,
+  }) {
     return line.replaceAllMapped(RegExp(r'\S+'), (match) {
       final token = match.group(0)!;
       if (isChordToken(token)) {
@@ -159,7 +310,11 @@ class TransposerEngine {
     });
   }
 
-  static String transposeCifra(String content, String currentKey, String targetKey) {
+  static String transposeCifra(
+    String content,
+    String currentKey,
+    String targetKey,
+  ) {
     if (content.isEmpty) return content;
     if (currentKey.isEmpty || targetKey.isEmpty) return content;
 
@@ -167,7 +322,8 @@ class TransposerEngine {
     if (semitones == 0) return content;
 
     final targetNormalized = normalizeKey(targetKey);
-    final preferFlats = targetNormalized.contains('b') || _flatKeys.contains(targetNormalized);
+    final preferFlats =
+        targetNormalized.contains('b') || _flatKeys.contains(targetNormalized);
 
     final lines = content.split('\n');
     final result = <String>[];
@@ -178,7 +334,9 @@ class TransposerEngine {
         continue;
       }
       if (isChordLine(line)) {
-        result.add(_transposeChordLine(line, semitones, preferFlats: preferFlats));
+        result.add(
+          _transposeChordLine(line, semitones, preferFlats: preferFlats),
+        );
         continue;
       }
       result.add(line);
@@ -196,5 +354,73 @@ class TransposerEngine {
     if (content.isEmpty) return '';
     if (originalKey == targetKey || targetKey.isEmpty) return content;
     return transposeCifra(content, originalKey, targetKey);
+  }
+
+  static String simplifyChord(String chord) {
+    final value = chord.trim();
+    if (value.isEmpty || !isChordToken(value)) return chord;
+
+    final rootMatch = RegExp(r'^([A-G][#b]?)').firstMatch(value);
+    if (rootMatch == null) return chord;
+
+    final root = rootMatch.group(1)!;
+    final rest = value.substring(root.length);
+    final lowerRest = rest.toLowerCase();
+    final marker = rest.contains('*') ? '*' : '';
+
+    if (lowerRest.contains('m7(b5)') || rest.contains('ø')) {
+      return '${root}m7(b5)$marker';
+    }
+
+    if (lowerRest.contains('dim') || rest.contains('°') || rest.contains('º')) {
+      return '${root}dim$marker';
+    }
+
+    if (lowerRest.contains('aug')) {
+      return '${root}aug$marker';
+    }
+
+    final susMatch = RegExp(
+      r'sus[24]?|4|2',
+      caseSensitive: false,
+    ).firstMatch(rest.split('/').first);
+    if (susMatch != null) {
+      final suffix = susMatch.group(0)!.toLowerCase().startsWith('sus')
+          ? susMatch.group(0)!
+          : 'sus${susMatch.group(0)!}';
+      return '$root$suffix$marker';
+    }
+
+    final isMinor = lowerRest.startsWith('m') && !lowerRest.startsWith('maj');
+    return '$root${isMinor ? 'm' : ''}$marker';
+  }
+
+  static String _simplifyChordLine(String line) {
+    return line.replaceAllMapped(RegExp(r'\S+'), (match) {
+      final token = match.group(0)!;
+      if (isChordToken(token)) return simplifyChord(token);
+      return token;
+    });
+  }
+
+  static String simplifyCifra(String content) {
+    if (content.isEmpty) return content;
+
+    final lines = content.split('\n');
+    final result = <String>[];
+
+    for (final line in lines) {
+      if (isTabLine(line) || isHeaderLine(line)) {
+        result.add(line);
+        continue;
+      }
+      if (isChordLine(line)) {
+        result.add(_simplifyChordLine(line));
+        continue;
+      }
+      result.add(line);
+    }
+
+    return result.join('\n');
   }
 }

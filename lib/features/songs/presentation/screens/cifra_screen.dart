@@ -30,9 +30,12 @@ class CifraScreen extends StatefulWidget {
 }
 
 class _CifraScreenState extends State<CifraScreen> {
+  late String _originalPitch;
   late String _currentPitch;
+  late bool _minorToneMode;
   bool _isCapoActive = false;
   bool _isFavorite = false;
+  bool _isSimplified = false;
 
   String get _safeCapo => widget.song.capo ?? '';
   String get _safeShapeKey => widget.song.shapeKey ?? '';
@@ -53,7 +56,15 @@ class _CifraScreenState extends State<CifraScreen> {
   void initState() {
     super.initState();
     _isCapoActive = _safeCapo.isNotEmpty && _safeCapo != '0';
-    _currentPitch = _safeOriginalKey;
+    _originalPitch = TransposerEngine.resolveDisplayedKey(
+      originalKey: _safeOriginalKey,
+      shapeKey: _safeShapeKey,
+      capo: _safeCapo,
+    );
+    _currentPitch = _originalPitch;
+    _minorToneMode =
+        TransposerEngine.isMinorKey(_originalPitch) ||
+        TransposerEngine.isMinorKey(_safeShapeKey);
 
     WakelockPlus.enable();
     _checkIfFavorite();
@@ -166,7 +177,7 @@ class _CifraScreenState extends State<CifraScreen> {
   String get _currentShape {
     if (_safeShapeKey.isEmpty) return _currentPitch;
     int diff = TransposerEngine.getSemitonesDifference(
-      _safeOriginalKey,
+      _originalPitch,
       _currentPitch,
     );
     if (diff == 0) return _safeShapeKey;
@@ -177,105 +188,55 @@ class _CifraScreenState extends State<CifraScreen> {
     String baseContent = _safeContent;
     String baseShape = _safeShapeKey.isNotEmpty
         ? _safeShapeKey
-        : _safeOriginalKey;
+        : _originalPitch;
+    String content;
 
     if (!_isCapoActive || _safeCapo.isEmpty || _safeCapo == '0') {
-      if (baseShape == _currentPitch) return baseContent;
-      return TransposerEngine.transposeSong(
+      if (baseShape == _currentPitch) {
+        content = baseContent;
+      } else {
+        content = TransposerEngine.transposeSong(
+          content: baseContent,
+          originalKey: baseShape,
+          shapeKey: baseShape,
+          capo: '',
+          targetKey: _currentPitch,
+        );
+      }
+      return _isSimplified ? TransposerEngine.simplifyCifra(content) : content;
+    }
+
+    final currentShape = _currentShape;
+    if (baseShape == currentShape) {
+      content = baseContent;
+    } else {
+      content = TransposerEngine.transposeSong(
         content: baseContent,
         originalKey: baseShape,
         shapeKey: baseShape,
         capo: '',
-        targetKey: _currentPitch,
+        targetKey: currentShape,
       );
     }
-
-    final currentShape = _currentShape;
-    if (baseShape == currentShape) return baseContent;
-    return TransposerEngine.transposeSong(
-      content: baseContent,
-      originalKey: baseShape,
-      shapeKey: baseShape,
-      capo: '',
-      targetKey: currentShape,
-    );
+    return _isSimplified ? TransposerEngine.simplifyCifra(content) : content;
   }
 
   void _toneUp() => _changeToneTo(_getShiftedPitch(1));
   void _toneDown() => _changeToneTo(_getShiftedPitch(-1));
 
-  bool _isMinorPitch(String pitch) {
-    return TransposerEngine.normalizeKey(pitch).toLowerCase().endsWith('m');
-  }
-
   List<String> _toneOptionsForCurrentMode() {
-    if (_isMinorPitch(_currentPitch)) {
-      return const [
-        'Am',
-        'Bbm',
-        'Bm',
-        'Cm',
-        'C#m',
-        'Dm',
-        'Ebm',
-        'Em',
-        'Fm',
-        'F#m',
-        'Gm',
-        'G#m',
-      ];
-    }
-
-    return const [
-      'A',
-      'Bb',
-      'B',
-      'C',
-      'Db',
-      'D',
-      'Eb',
-      'E',
-      'F',
-      'F#',
-      'G',
-      'Ab',
-    ];
+    return _minorToneMode
+        ? TransposerEngine.minorToneOptions
+        : TransposerEngine.majorToneOptions;
   }
 
   String _canonicalPitchForUi(String pitch) {
-    final options = _isMinorPitch(pitch)
-        ? const [
-            'Am',
-            'Bbm',
-            'Bm',
-            'Cm',
-            'C#m',
-            'Dm',
-            'Ebm',
-            'Em',
-            'Fm',
-            'F#m',
-            'Gm',
-            'G#m',
-          ]
-        : const [
-            'A',
-            'Bb',
-            'B',
-            'C',
-            'Db',
-            'D',
-            'Eb',
-            'E',
-            'F',
-            'F#',
-            'G',
-            'Ab',
-          ];
+    final options = _toneOptionsForCurrentMode();
 
     for (final option in options) {
       if (TransposerEngine.getSemitonesDifference(option, pitch) == 0 &&
-          _isMinorPitch(option) == _isMinorPitch(pitch)) {
+          TransposerEngine.isMinorKey(option) ==
+              TransposerEngine.isMinorKey(pitch)) {
         return option;
       }
     }
@@ -287,7 +248,8 @@ class _CifraScreenState extends State<CifraScreen> {
     int idx = options.indexWhere(
       (tone) =>
           TransposerEngine.getSemitonesDifference(tone, _currentPitch) == 0 &&
-          _isMinorPitch(tone) == _isMinorPitch(_currentPitch),
+          TransposerEngine.isMinorKey(tone) ==
+              TransposerEngine.isMinorKey(_currentPitch),
     );
     if (idx == -1) idx = 0;
     int newIdx = (idx + diff) % 12;
@@ -382,6 +344,24 @@ class _CifraScreenState extends State<CifraScreen> {
                     const Divider(color: Color(0xFF282832), height: 16),
                   ],
 
+                  SwitchListTile(
+                    title: const Text(
+                      'Cifra Simplificada',
+                      style: TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                    subtitle: const Text(
+                      'Remove extensoes comuns e deixa os acordes mais diretos.',
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                    activeColor: Colors.greenAccent,
+                    contentPadding: EdgeInsets.zero,
+                    value: _isSimplified,
+                    onChanged: (val) {
+                      setState(() => _isSimplified = val);
+                      setModalState(() {});
+                    },
+                  ),
+                  const Divider(color: Color(0xFF282832), height: 16),
                   SwitchListTile(
                     title: const Text(
                       'Mostrar Acordes',
@@ -551,8 +531,8 @@ class _CifraScreenState extends State<CifraScreen> {
 
                   InkWell(
                     onTap: () {
-                      _changeToneTo(_safeOriginalKey);
-                      uiPitch = _canonicalPitchForUi(_safeOriginalKey);
+                      _changeToneTo(_originalPitch);
+                      uiPitch = _canonicalPitchForUi(_originalPitch);
                       setModalState(() {});
                     },
                     child: Container(
@@ -901,7 +881,10 @@ class _CifraScreenState extends State<CifraScreen> {
                 ),
                 const SizedBox(height: 16),
 
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     InkWell(
                       onTap: _showToneSelector,
@@ -927,7 +910,6 @@ class _CifraScreenState extends State<CifraScreen> {
                     ),
 
                     if (_safeCapo.isNotEmpty && _safeCapo != '0') ...[
-                      const SizedBox(width: 8),
                       InkWell(
                         onTap: _showSettingsPanel,
                         borderRadius: BorderRadius.circular(6),
@@ -971,6 +953,48 @@ class _CifraScreenState extends State<CifraScreen> {
                         ),
                       ),
                     ],
+                    InkWell(
+                      onTap: () =>
+                          setState(() => _isSimplified = !_isSimplified),
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _isSimplified
+                              ? Colors.greenAccent.withOpacity(0.14)
+                              : Colors.white.withOpacity(0.06),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _isSimplified
+                                  ? Icons.check_circle_rounded
+                                  : Icons.tune_rounded,
+                              color: _isSimplified
+                                  ? Colors.greenAccent
+                                  : Colors.white70,
+                              size: 14,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Simplificada',
+                              style: TextStyle(
+                                color: _isSimplified
+                                    ? Colors.greenAccent
+                                    : Colors.white70,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ],
                 ),
 
