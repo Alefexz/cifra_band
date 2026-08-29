@@ -925,24 +925,33 @@ class _CifraScreenState extends State<CifraScreen> {
                 _buildTitleAndActionsBar(),
                 const SizedBox(height: 24),
 
-                Text(
-                  widget.song.title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 26,
-                    fontWeight: FontWeight.bold,
+                SizedBox(
+                  width: double.infinity,
+                  child: Text(
+                    widget.song.title,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 26,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text(
-                  widget.song.artist,
-                  style: const TextStyle(color: Colors.grey, fontSize: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: Text(
+                    widget.song.artist,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.grey, fontSize: 16),
+                  ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 18),
 
                 Wrap(
                   spacing: 8,
                   runSpacing: 8,
+                  alignment: WrapAlignment.center,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     _buildCifraInfoChip(
@@ -1018,7 +1027,7 @@ class _CifraScreenState extends State<CifraScreen> {
                   ),
                 ],
 
-                const SizedBox(height: 24),
+                const SizedBox(height: 30),
                 _buildRichCifra(),
               ],
             ),
@@ -1043,18 +1052,22 @@ class _CifraScreenState extends State<CifraScreen> {
 
     for (String line in lines) {
       if (line.trim().isEmpty) {
-        widgets.add(SizedBox(height: _fontSize * 0.8));
+        widgets.add(SizedBox(height: _fontSize * 0.95));
         continue;
       }
       if (TransposerEngine.isTabLine(line)) {
         if (_showTabs)
           widgets.add(
-            Text(
-              line,
-              style: TextStyle(
-                color: Colors.grey.shade500,
-                fontFamily: 'monospace',
-                fontSize: _fontSize - 2,
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 1),
+              child: Text(
+                line,
+                style: TextStyle(
+                  color: Colors.grey.shade500,
+                  fontFamily: 'monospace',
+                  fontSize: _fontSize - 2,
+                  height: 1.32,
+                ),
               ),
             ),
           );
@@ -1063,15 +1076,18 @@ class _CifraScreenState extends State<CifraScreen> {
       if (TransposerEngine.isHeaderLine(line)) {
         widgets.add(
           Container(
-            margin: const EdgeInsets.only(top: 16, bottom: 8),
-            decoration: const BoxDecoration(
+            margin: const EdgeInsets.only(top: 28, bottom: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.blueAccent.withOpacity(0.08),
+              borderRadius: BorderRadius.circular(10),
               border: Border(
                 left: BorderSide(color: Colors.blueAccent, width: 3),
               ),
             ),
-            padding: const EdgeInsets.only(left: 12, top: 2, bottom: 2),
             child: Text(
               line.replaceAll('[', '').replaceAll(']', '').toUpperCase(),
+              textAlign: TextAlign.left,
               style: TextStyle(
                 color: Colors.blueAccent,
                 fontWeight: FontWeight.bold,
@@ -1086,13 +1102,17 @@ class _CifraScreenState extends State<CifraScreen> {
       if (TransposerEngine.isChordLine(line)) {
         if (_showChords)
           widgets.add(
-            Text(
-              line,
-              style: TextStyle(
-                color: Colors.blueAccent,
-                fontWeight: FontWeight.bold,
-                fontFamily: 'monospace',
-                fontSize: _fontSize,
+            Padding(
+              padding: EdgeInsets.only(top: _fontSize * 0.35),
+              child: Text(
+                line.trimRight(),
+                style: TextStyle(
+                  color: Colors.blueAccent,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'monospace',
+                  fontSize: _fontSize,
+                  height: 1.28,
+                ),
               ),
             ),
           );
@@ -1100,28 +1120,38 @@ class _CifraScreenState extends State<CifraScreen> {
       }
 
       widgets.add(
-        Text(
-          line,
-          style: TextStyle(
-            color: Colors.white,
-            fontFamily: 'monospace',
-            fontSize: _fontSize,
-            height: 1.5,
+        SizedBox(
+          width: double.infinity,
+          child: Text(
+            line.trim(),
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.92),
+              fontFamily: 'monospace',
+              fontSize: _fontSize,
+              height: 1.72,
+            ),
           ),
         ),
       );
     }
 
-    // ⚠️ ADICIONADO: Scroll Horizontal para a tablatura não quebrar de linha no celular
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      physics: widget.allowHorizontalCifraScroll
-          ? const BouncingScrollPhysics()
-          : const NeverScrollableScrollPhysics(),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: widgets,
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: widget.allowHorizontalCifraScroll
+              ? const BouncingScrollPhysics()
+              : const NeverScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minWidth: constraints.maxWidth),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: widgets,
+            ),
+          ),
+        );
+      },
     );
   }
 }
