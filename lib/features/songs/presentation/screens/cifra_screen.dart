@@ -37,6 +37,7 @@ class _CifraScreenState extends State<CifraScreen> {
   bool _isCapoActive = false;
   bool _isFavorite = false;
   bool _isSimplified = false;
+  bool _isStageMode = false;
 
   String get _safeCapo => widget.song.capo ?? '';
   String get _safeShapeKey => widget.song.shapeKey ?? '';
@@ -52,6 +53,28 @@ class _CifraScreenState extends State<CifraScreen> {
   Timer? _scrollTimer;
   bool _isPlaying = false;
   double _scrollSpeed = 1.0;
+
+  Color get _pageBackground =>
+      _isStageMode ? const Color(0xFF0D0D12) : const Color(0xFFF7F9FC);
+  Color get _surfaceColor =>
+      _isStageMode ? const Color(0xFF1A1A24) : Colors.white;
+  Color get _modalSurfaceColor =>
+      _isStageMode ? const Color(0xFF16161E) : Colors.white;
+  Color get _controlColor =>
+      _isStageMode ? const Color(0xFF2C2C2E) : const Color(0xFFF0F4FA);
+  Color get _primaryText =>
+      _isStageMode ? Colors.white : const Color(0xFF101828);
+  Color get _secondaryText =>
+      _isStageMode ? Colors.grey.shade500 : const Color(0xFF667085);
+  Color get _bodyText =>
+      _isStageMode ? Colors.white.withOpacity(0.92) : const Color(0xFF1F2937);
+  Color get _mutedText =>
+      _isStageMode ? Colors.grey.shade500 : const Color(0xFF6B7280);
+  Color get _dividerColor =>
+      _isStageMode ? Colors.white.withOpacity(0.1) : const Color(0xFFE5E7EB);
+  Color get _headerBackground => _isStageMode
+      ? Colors.blueAccent.withOpacity(0.08)
+      : const Color(0xFFEAF2FF);
 
   @override
   void initState() {
@@ -75,10 +98,24 @@ class _CifraScreenState extends State<CifraScreen> {
         TransposerEngine.isMinorKey(_shapePitch);
 
     WakelockPlus.enable();
+    _loadCifraDisplayMode();
     _checkIfFavorite();
     if (widget.recordHistory) {
       unawaited(PlayedHistoryService.recordSong(widget.song));
     }
+  }
+
+  Future<void> _loadCifraDisplayMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getBool('cifra_stage_mode');
+    if (!mounted) return;
+    setState(() => _isStageMode = saved ?? widget.embedded);
+  }
+
+  Future<void> _toggleStageMode() async {
+    setState(() => _isStageMode = !_isStageMode);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('cifra_stage_mode', _isStageMode);
   }
 
   @override
@@ -306,9 +343,9 @@ class _CifraScreenState extends State<CifraScreen> {
           builder: (context, setModalState) {
             return Container(
               padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: Color(0xFF16161E),
-                borderRadius: BorderRadius.only(
+              decoration: BoxDecoration(
+                color: _modalSurfaceColor,
+                borderRadius: const BorderRadius.only(
                   topLeft: Radius.circular(24),
                   topRight: Radius.circular(24),
                 ),
@@ -320,17 +357,40 @@ class _CifraScreenState extends State<CifraScreen> {
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade700,
+                      color: _dividerColor,
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
                   const SizedBox(height: 24),
 
+                  SwitchListTile(
+                    title: Text(
+                      'Modo Palco',
+                      style: TextStyle(color: _primaryText, fontSize: 16),
+                    ),
+                    subtitle: Text(
+                      _isStageMode
+                          ? 'Fundo escuro para culto e ensaio.'
+                          : 'Modo claro para leitura normal da cifra.',
+                      style: TextStyle(color: _secondaryText, fontSize: 12),
+                    ),
+                    activeColor: Colors.blueAccent,
+                    contentPadding: EdgeInsets.zero,
+                    value: _isStageMode,
+                    onChanged: (val) async {
+                      setState(() => _isStageMode = val);
+                      setModalState(() {});
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.setBool('cifra_stage_mode', val);
+                    },
+                  ),
+                  Divider(color: _dividerColor, height: 16),
+
                   if (_safeCapo.isNotEmpty && _safeCapo != '0') ...[
                     SwitchListTile(
-                      title: const Text(
+                      title: Text(
                         'Usar Capotraste',
-                        style: TextStyle(color: Colors.white, fontSize: 16),
+                        style: TextStyle(color: _primaryText, fontSize: 16),
                       ),
                       subtitle: Text(
                         'Posição: $_safeCapo',
@@ -347,17 +407,17 @@ class _CifraScreenState extends State<CifraScreen> {
                         setModalState(() {});
                       },
                     ),
-                    const Divider(color: Color(0xFF282832), height: 16),
+                    Divider(color: _dividerColor, height: 16),
                   ],
 
                   SwitchListTile(
-                    title: const Text(
+                    title: Text(
                       'Cifra Simplificada',
-                      style: TextStyle(color: Colors.white, fontSize: 16),
+                      style: TextStyle(color: _primaryText, fontSize: 16),
                     ),
-                    subtitle: const Text(
+                    subtitle: Text(
                       'Remove extensoes comuns e deixa os acordes mais diretos.',
-                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                      style: TextStyle(color: _secondaryText, fontSize: 12),
                     ),
                     activeColor: Colors.greenAccent,
                     contentPadding: EdgeInsets.zero,
@@ -367,11 +427,11 @@ class _CifraScreenState extends State<CifraScreen> {
                       setModalState(() {});
                     },
                   ),
-                  const Divider(color: Color(0xFF282832), height: 16),
+                  Divider(color: _dividerColor, height: 16),
                   SwitchListTile(
-                    title: const Text(
+                    title: Text(
                       'Mostrar Acordes',
-                      style: TextStyle(color: Colors.white, fontSize: 16),
+                      style: TextStyle(color: _primaryText, fontSize: 16),
                     ),
                     activeColor: Colors.blueAccent,
                     contentPadding: EdgeInsets.zero,
@@ -381,11 +441,11 @@ class _CifraScreenState extends State<CifraScreen> {
                       setModalState(() {});
                     },
                   ),
-                  const Divider(color: Color(0xFF282832), height: 16),
+                  Divider(color: _dividerColor, height: 16),
                   SwitchListTile(
-                    title: const Text(
+                    title: Text(
                       'Mostrar Tablaturas',
-                      style: TextStyle(color: Colors.white, fontSize: 16),
+                      style: TextStyle(color: _primaryText, fontSize: 16),
                     ),
                     activeColor: Colors.blueAccent,
                     contentPadding: EdgeInsets.zero,
@@ -417,9 +477,9 @@ class _CifraScreenState extends State<CifraScreen> {
           builder: (context, setModalState) {
             return Container(
               padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: Color(0xFF1E1E1E),
-                borderRadius: BorderRadius.only(
+              decoration: BoxDecoration(
+                color: _modalSurfaceColor,
+                borderRadius: const BorderRadius.only(
                   topLeft: Radius.circular(24),
                   topRight: Radius.circular(24),
                 ),
@@ -431,7 +491,7 @@ class _CifraScreenState extends State<CifraScreen> {
                     width: 40,
                     height: 4,
                     decoration: BoxDecoration(
-                      color: Colors.grey.shade700,
+                      color: _dividerColor,
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
@@ -449,14 +509,14 @@ class _CifraScreenState extends State<CifraScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF2C2C2E),
+                              color: _controlColor,
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Center(
+                            child: Center(
                               child: Text(
                                 '-1/2 tom',
                                 style: TextStyle(
-                                  color: Colors.white,
+                                  color: _primaryText,
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -476,14 +536,14 @@ class _CifraScreenState extends State<CifraScreen> {
                           child: Container(
                             padding: const EdgeInsets.symmetric(vertical: 16),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF2C2C2E),
+                              color: _controlColor,
                               borderRadius: BorderRadius.circular(12),
                             ),
-                            child: const Center(
+                            child: Center(
                               child: Text(
                                 '+1/2 tom',
                                 style: TextStyle(
-                                  color: Colors.white,
+                                  color: _primaryText,
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -513,8 +573,10 @@ class _CifraScreenState extends State<CifraScreen> {
                           height: 55,
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? Colors.white
-                                : const Color(0xFF2C2C2E),
+                                ? (_isStageMode
+                                      ? Colors.white
+                                      : Colors.blueAccent)
+                                : _controlColor,
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Center(
@@ -522,8 +584,10 @@ class _CifraScreenState extends State<CifraScreen> {
                               t,
                               style: TextStyle(
                                 color: isSelected
-                                    ? Colors.black
-                                    : Colors.grey.shade400,
+                                    ? (_isStageMode
+                                          ? Colors.black
+                                          : Colors.white)
+                                    : _secondaryText,
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
                               ),
@@ -546,25 +610,22 @@ class _CifraScreenState extends State<CifraScreen> {
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       decoration: BoxDecoration(
                         color: Colors.transparent,
-                        border: Border.all(
-                          color: const Color(0xFF2C2C2E),
-                          width: 2,
-                        ),
+                        border: Border.all(color: _dividerColor, width: 2),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
                             Icons.refresh_rounded,
-                            color: Colors.grey,
+                            color: _secondaryText,
                             size: 20,
                           ),
-                          SizedBox(width: 8),
+                          const SizedBox(width: 8),
                           Text(
                             'Restaurar',
                             style: TextStyle(
-                              color: Colors.grey,
+                              color: _secondaryText,
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
                             ),
@@ -591,8 +652,17 @@ class _CifraScreenState extends State<CifraScreen> {
       margin: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0xFF1A1A24),
+        color: _surfaceColor,
         borderRadius: BorderRadius.circular(100),
+        border: Border.all(color: _dividerColor),
+        boxShadow: [
+          if (!_isStageMode)
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
+            ),
+        ],
       ),
       child: Row(
         children: [
@@ -625,18 +695,18 @@ class _CifraScreenState extends State<CifraScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
+                  Text(
                     'Tom',
                     maxLines: 1,
-                    style: TextStyle(color: Colors.grey, fontSize: 9),
+                    style: TextStyle(color: _secondaryText, fontSize: 9),
                   ),
                   FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Text(
                       _currentPitch,
                       maxLines: 1,
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: _primaryText,
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
                       ),
@@ -667,8 +737,8 @@ class _CifraScreenState extends State<CifraScreen> {
             child: Text(
               '${_fontSize.toInt()}',
               maxLines: 1,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: _primaryText,
                 fontWeight: FontWeight.bold,
                 fontSize: 14,
               ),
@@ -692,7 +762,7 @@ class _CifraScreenState extends State<CifraScreen> {
           icon: _isPlaying
               ? Icons.pause_circle_filled_rounded
               : Icons.play_circle_fill_rounded,
-          color: _isPlaying ? Colors.orangeAccent : Colors.grey,
+          color: _isPlaying ? Colors.orangeAccent : _secondaryText,
           size: 27,
           onTap: _toggleAutoScroll,
         ),
@@ -716,7 +786,7 @@ class _CifraScreenState extends State<CifraScreen> {
                   style: TextStyle(
                     color: _scrollSpeed > 1.0
                         ? Colors.blueAccent
-                        : Colors.white,
+                        : _primaryText,
                     fontWeight: FontWeight.bold,
                     fontSize: 14,
                   ),
@@ -732,7 +802,7 @@ class _CifraScreenState extends State<CifraScreen> {
   Widget _buildCompactIconButton({
     required IconData icon,
     required VoidCallback onTap,
-    Color color = Colors.grey,
+    Color? color,
     double size = 21,
   }) {
     return InkWell(
@@ -741,7 +811,7 @@ class _CifraScreenState extends State<CifraScreen> {
       child: SizedBox(
         width: 30,
         height: 38,
-        child: Icon(icon, color: color, size: size),
+        child: Icon(icon, color: color ?? _secondaryText, size: size),
       ),
     );
   }
@@ -759,8 +829,8 @@ class _CifraScreenState extends State<CifraScreen> {
         child: Center(
           child: Text(
             label,
-            style: const TextStyle(
-              color: Colors.grey,
+            style: TextStyle(
+              color: _secondaryText,
               fontWeight: FontWeight.bold,
               fontSize: 13,
             ),
@@ -774,7 +844,7 @@ class _CifraScreenState extends State<CifraScreen> {
     return Container(
       width: 1,
       height: 24,
-      color: Colors.white.withOpacity(0.1),
+      color: _dividerColor,
       margin: const EdgeInsets.symmetric(horizontal: 3),
     );
   }
@@ -865,10 +935,10 @@ class _CifraScreenState extends State<CifraScreen> {
     IconData? icon,
     bool selected = true,
   }) {
-    final foreground = selected ? color : Colors.white70;
+    final foreground = selected ? color : _secondaryText;
     final background = selected
         ? color.withOpacity(0.14)
-        : Colors.white.withOpacity(0.06);
+        : (_isStageMode ? Colors.white.withOpacity(0.06) : Colors.white);
 
     return Material(
       color: Colors.transparent,
@@ -930,8 +1000,8 @@ class _CifraScreenState extends State<CifraScreen> {
                   child: Text(
                     widget.song.title,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: _primaryText,
                       fontSize: 26,
                       fontWeight: FontWeight.bold,
                     ),
@@ -943,7 +1013,7 @@ class _CifraScreenState extends State<CifraScreen> {
                   child: Text(
                     widget.song.artist,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(color: Colors.grey, fontSize: 16),
+                    style: TextStyle(color: _secondaryText, fontSize: 16),
                   ),
                 ),
                 const SizedBox(height: 18),
@@ -982,6 +1052,17 @@ class _CifraScreenState extends State<CifraScreen> {
                       onTap: () =>
                           setState(() => _isSimplified = !_isSimplified),
                     ),
+
+                    _buildCifraInfoChip(
+                      label: _isStageMode ? 'Modo Palco' : 'Modo Claro',
+                      color: _isStageMode
+                          ? Colors.deepPurpleAccent
+                          : Colors.blueGrey,
+                      icon: _isStageMode
+                          ? Icons.dark_mode_rounded
+                          : Icons.light_mode_rounded,
+                      onTap: _toggleStageMode,
+                    ),
                   ],
                 ),
 
@@ -1015,13 +1096,15 @@ class _CifraScreenState extends State<CifraScreen> {
                       if (widget.song.rehearsalNotes?.trim().isNotEmpty ??
                           false)
                         Chip(
-                          avatar: const Icon(
+                          avatar: Icon(
                             Icons.sticky_note_2_outlined,
-                            color: Colors.grey,
+                            color: _secondaryText,
                           ),
                           label: Text(widget.song.rehearsalNotes!),
-                          backgroundColor: Colors.white.withOpacity(0.06),
-                          labelStyle: const TextStyle(color: Colors.white70),
+                          backgroundColor: _isStageMode
+                              ? Colors.white.withOpacity(0.06)
+                              : Colors.white,
+                          labelStyle: TextStyle(color: _secondaryText),
                         ),
                     ],
                   ),
@@ -1037,11 +1120,11 @@ class _CifraScreenState extends State<CifraScreen> {
     );
 
     if (widget.embedded) {
-      return ColoredBox(color: const Color(0xFF0D0D12), child: page);
+      return ColoredBox(color: _pageBackground, child: page);
     }
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0D0D12),
+      backgroundColor: _pageBackground,
       body: SafeArea(child: page),
     );
   }
@@ -1063,7 +1146,7 @@ class _CifraScreenState extends State<CifraScreen> {
               child: _buildCifraLine(
                 line,
                 style: TextStyle(
-                  color: Colors.grey.shade500,
+                  color: _mutedText,
                   fontFamily: 'monospace',
                   fontSize: _fontSize - 2,
                   height: 1.32,
@@ -1080,7 +1163,7 @@ class _CifraScreenState extends State<CifraScreen> {
             margin: const EdgeInsets.only(top: 28, bottom: 14),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.blueAccent.withOpacity(0.08),
+              color: _headerBackground,
               borderRadius: BorderRadius.circular(10),
               border: Border(
                 left: BorderSide(color: Colors.blueAccent, width: 3),
@@ -1127,7 +1210,7 @@ class _CifraScreenState extends State<CifraScreen> {
           child: _buildCifraLine(
             line,
             style: TextStyle(
-              color: Colors.white.withOpacity(0.92),
+              color: _bodyText,
               fontFamily: 'monospace',
               fontSize: _fontSize,
               height: 1.55,
