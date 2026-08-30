@@ -3,6 +3,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
@@ -99,7 +101,9 @@ class SongScraperDatasource {
     debugPrint('🌐 Buscando no servidor...');
     final SongModel song;
     try {
-      final response = await http.get(uri).timeout(_timeout);
+      final response = await http
+          .get(uri, headers: await _authHeaders())
+          .timeout(_timeout);
       debugPrint('📊 HTTP STATUS: ${response.statusCode}');
 
       if (response.statusCode != 200) {
@@ -145,36 +149,6 @@ class SongScraperDatasource {
       rethrow;
     }
 
-    // ============================================================
-    // 3. SALVA NO CACHE GLOBAL — sem bloquear a resposta ao usuário
-    // ============================================================
-    // FIX: antes, um erro aqui (ex.: regra de segurança recusando a
-    // escrita) derrubava a busca inteira via rethrow, mesmo já tendo
-    // encontrado a cifra certa. Agora roda em paralelo e só loga se
-    // falhar — o usuário recebe a música de qualquer jeito.
-    unawaited(
-      docRef
-          .set({
-            'id': song.id,
-            'title': song.title,
-            'artist': song.artist,
-            'originalKey': song.originalKey,
-            'shapeKey': song.shapeKey,
-            'capo': song.capo,
-            'content': song.content,
-            'url': song.url,
-            'created_at': FieldValue.serverTimestamp(),
-          })
-          .then((_) {
-            debugPrint('💾 Salva no cache global com sucesso.');
-          })
-          .catchError((e) {
-            debugPrint(
-              '⚠️ Falha ao salvar no cache global (não afeta o usuário): $e',
-            );
-          }),
-    );
-
     debugPrint('✅ Processo concluído!');
     debugPrint('');
 
@@ -185,18 +159,39 @@ class SongScraperDatasource {
     final uri = Uri.parse(apiUrl.replaceAll('+', '%20'));
 
     unawaited(
-      http
-          .get(uri)
-          .timeout(const Duration(seconds: 60))
-          .then((response) {
-            debugPrint(
-              '🌐 Render acordado em segundo plano: HTTP ${response.statusCode}',
-            );
-          })
-          .catchError((e) {
-            debugPrint('⚠️ Ping em segundo plano para o Render falhou: $e');
-          }),
+      (() async {
+        try {
+          final response = await http
+              .get(uri, headers: await _authHeaders())
+              .timeout(const Duration(seconds: 60));
+          debugPrint(
+            '🌐 Render acordado em segundo plano: HTTP ${response.statusCode}',
+          );
+        } catch (e) {
+          debugPrint('⚠️ Ping em segundo plano para o Render falhou: $e');
+        }
+      })(),
     );
+  }
+
+  static Future<Map<String, String>> _authHeaders() async {
+    final user = FirebaseAuth.instance.currentUser;
+    final token = await user?.getIdToken();
+    final appCheckToken = await _safeAppCheckToken();
+    return {
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      if (appCheckToken != null && appCheckToken.isNotEmpty)
+        'X-Firebase-AppCheck': appCheckToken,
+    };
+  }
+
+  static Future<String?> _safeAppCheckToken() async {
+    try {
+      return FirebaseAppCheck.instance.getToken(false);
+    } catch (e) {
+      debugPrint('App Check indisponível para busca: $e');
+      return null;
+    }
   }
 
   static String _clean(dynamic value) {

@@ -241,6 +241,7 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
           teamUids,
           song.title,
           userName,
+          widget.setlistId,
         );
 
         if (!mounted) return;

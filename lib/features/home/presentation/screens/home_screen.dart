@@ -1578,6 +1578,7 @@ class _CreateScheduleBottomSheetState
             'suggested_songs': [],
             'approved_songs': [],
             'team_assignments': [],
+            'team_uids': [],
             'created_at': FieldValue.serverTimestamp(),
           });
 

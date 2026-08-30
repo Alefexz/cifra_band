@@ -82,7 +82,11 @@ class _EventDetailScreenState extends State<EventDetailScreen>
       final teamUids = _extractTeamUids(data['team_assignments'] ?? []);
 
       await docRef.delete();
-      await ApiNotification.notificarEscalaCancelada(teamUids, title);
+      await ApiNotification.notificarEscalaCancelada(
+        teamUids,
+        title,
+        widget.scheduleId,
+      );
       if (mounted) context.pop();
     }
   }
@@ -110,12 +114,18 @@ class _EventDetailScreenState extends State<EventDetailScreen>
         .doc(widget.scheduleId);
     await docRef.update({
       'team_assignments': FieldValue.arrayRemove([memberAssignment]),
+      'team_uids': FieldValue.arrayRemove([memberAssignment['uid']]),
     });
 
     final uid = memberAssignment['uid']?.toString();
     final role = memberAssignment['role']?.toString() ?? 'Membro';
     if (uid != null && uid.isNotEmpty) {
-      await ApiNotification.notificarRemovidoDaEscala(uid, scheduleTitle, role);
+      await ApiNotification.notificarRemovidoDaEscala(
+        uid,
+        scheduleTitle,
+        role,
+        widget.scheduleId,
+      );
     }
   }
 
@@ -159,9 +169,19 @@ class _EventDetailScreenState extends State<EventDetailScreen>
       final name = assignment['name']?.toString() ?? 'Membro';
 
       if (status == 'accepted') {
-        await ApiNotification.notificarAceite(adminUids, name, scheduleTitle);
+        await ApiNotification.notificarAceite(
+          adminUids,
+          name,
+          scheduleTitle,
+          widget.scheduleId,
+        );
       } else {
-        await ApiNotification.notificarRecusa(adminUids, name, scheduleTitle);
+        await ApiNotification.notificarRecusa(
+          adminUids,
+          name,
+          scheduleTitle,
+          widget.scheduleId,
+        );
       }
 
       if (mounted) {
@@ -238,6 +258,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     await ApiNotification.notificarMusicaRemovida(
       teamUids,
       songMap['title']?.toString() ?? 'Uma música',
+      widget.scheduleId,
     );
     if (mounted)
       ScaffoldMessenger.of(context).showSnackBar(
@@ -288,15 +309,8 @@ class _EventDetailScreenState extends State<EventDetailScreen>
         .update({'approved_songs': updated});
   }
 
-  Future<void> _castVote(
-    Map<String, dynamic> song,
-    bool isUpvote,
-    List<dynamic> currentTeam,
-  ) async {
+  Future<void> _castVote(Map<String, dynamic> song, bool isUpvote) async {
     final uid = FirebaseAuth.instance.currentUser!.uid;
-    final teamUids = _extractTeamUids(currentTeam);
-    String? approvedSongTitle;
-    String? rejectedSongTitle;
     final docRef = FirebaseFirestore.instance
         .collection('schedules')
         .doc(widget.scheduleId);
@@ -333,40 +347,9 @@ class _EventDetailScreenState extends State<EventDetailScreen>
 
       targetSong['upvotes'] = upvotes;
       targetSong['downvotes'] = downvotes;
-
-      int teamSize = currentTeam.length;
-      if (teamSize == 0) teamSize = 1;
-      double requiredVotes = teamSize / 2;
-
-      if (upvotes.length > requiredVotes) {
-        suggested.removeAt(index);
-        approved.add(targetSong);
-        approvedSongTitle = targetSong['title']?.toString();
-        transaction.update(docRef, {
-          'suggested_songs': suggested,
-          'approved_songs': approved,
-        });
-      } else if (downvotes.length >= requiredVotes) {
-        suggested.removeAt(index);
-        rejectedSongTitle = targetSong['title']?.toString();
-        transaction.update(docRef, {'suggested_songs': suggested});
-      } else {
-        suggested[index] = targetSong;
-        transaction.update(docRef, {'suggested_songs': suggested});
-      }
+      suggested[index] = targetSong;
+      transaction.update(docRef, {'suggested_songs': suggested});
     });
-
-    if (approvedSongTitle != null) {
-      await ApiNotification.notificarMusicaAprovada(
-        teamUids,
-        approvedSongTitle!,
-      );
-    } else if (rejectedSongTitle != null) {
-      await ApiNotification.notificarMusicaRejeitada(
-        teamUids,
-        rejectedSongTitle!,
-      );
-    }
   }
 
   Future<void> _shareToWhatsApp(
@@ -698,11 +681,16 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                                                             'status': 'pending',
                                                           },
                                                         ]),
+                                                    'team_uids':
+                                                        FieldValue.arrayUnion([
+                                                          user.id,
+                                                        ]),
                                                   });
                                               await ApiNotification.notificarEscalado(
                                                 user.id,
                                                 scheduleTitle,
                                                 selectedRole ?? 'Membro',
+                                                widget.scheduleId,
                                               );
                                               if (mounted) {
                                                 ScaffoldMessenger.of(
@@ -1427,7 +1415,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                           count: upvotes.length,
                           isActive: didIUpvote,
                           activeColor: Colors.blueAccent,
-                          onTap: () => _castVote(songMap, true, team),
+                          onTap: () => _castVote(songMap, true),
                         ),
                         const SizedBox(width: 8),
                         _buildVoteButton(
@@ -1435,7 +1423,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                           count: downvotes.length,
                           isActive: didIDownvote,
                           activeColor: Colors.redAccent,
-                          onTap: () => _castVote(songMap, false, team),
+                          onTap: () => _castVote(songMap, false),
                         ),
                       ],
                     ),
@@ -1732,7 +1720,11 @@ class _EditScheduleBottomSheetState extends State<_EditScheduleBottomSheet> {
         'date': Timestamp.fromDate(finalDateTime),
       });
 
-      await ApiNotification.notificarEscalaAtualizada(teamUids, updatedTitle);
+      await ApiNotification.notificarEscalaAtualizada(
+        teamUids,
+        updatedTitle,
+        widget.scheduleId,
+      );
 
       if (mounted) {
         Navigator.pop(context);

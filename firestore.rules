@@ -121,6 +121,48 @@ service cloud.firestore {
         ]);
     }
 
+    function scheduleBaseUnchanged() {
+      return request.resource.data.church_id == resource.data.church_id
+        && request.resource.data.title == resource.data.title
+        && request.resource.data.date == resource.data.date
+        && request.resource.data.get('created_at', null) == resource.data.get('created_at', null)
+        && request.resource.data.get('id', null) == resource.data.get('id', null);
+    }
+
+    function scheduleMemberFieldsOnly() {
+      return affectedOnly(['team_assignments'])
+        || affectedOnly(['suggested_songs']);
+    }
+
+    function scheduleTeamMember() {
+      return sameChurch(resource.data.church_id)
+        && (
+          !resource.data.keys().hasAny(['team_uids'])
+          || request.auth.uid in resource.data.team_uids
+        );
+    }
+
+    function adminScheduleUpdate() {
+      return isAdminForChurch(resource.data.church_id)
+        && request.resource.data.church_id == resource.data.church_id
+        && affectedOnly([
+          'id',
+          'title',
+          'date',
+          'suggested_songs',
+          'approved_songs',
+          'team_assignments',
+          'team_uids',
+          'updated_at'
+        ]);
+    }
+
+    function memberScheduleUpdate() {
+      return scheduleTeamMember()
+        && scheduleBaseUnchanged()
+        && scheduleMemberFieldsOnly();
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && canReadUser(userId);
       allow create: if validNewUser(userId);
@@ -185,7 +227,7 @@ service cloud.firestore {
     match /schedules/{scheduleId} {
       allow read: if sameChurch(resource.data.church_id);
       allow create: if isAdminForChurch(request.resource.data.church_id);
-      allow update: if sameChurch(resource.data.church_id);
+      allow update: if adminScheduleUpdate() || memberScheduleUpdate();
       allow delete: if isAdminForChurch(resource.data.church_id);
     }
 
@@ -212,8 +254,8 @@ service cloud.firestore {
     }
 
     match /global_cifras/{docId} {
-      allow read, create, update: if signedIn();
-      allow delete: if false;
+      allow read: if signedIn();
+      allow write: if false;
     }
 
     match /cifras_globais/{docId} {

@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
 
 import 'package:cifra_band/features/home/presentation/screens/onboarding_screen.dart';
 import 'package:cifra_band/features/home/presentation/screens/home_screen.dart';
@@ -25,6 +26,7 @@ import 'package:cifra_band/features/songs/domain/entities/song_entity.dart';
 
 final appRouter = GoRouter(
   initialLocation: '/',
+  observers: [FirebaseAnalyticsObserver(analytics: FirebaseAnalytics.instance)],
   redirect: (context, state) {
     final user = FirebaseAuth.instance.currentUser;
     final goingToOnboarding = state.matchedLocation == '/';

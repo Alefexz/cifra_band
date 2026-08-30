@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 
 class ApiNotification {
   static const String _url = 'https://cifraband-api.onrender.com/notificar';
@@ -13,11 +14,13 @@ class ApiNotification {
     String uid,
     String nomeCulto,
     String funcao,
+    String scheduleId,
   ) async {
     await _enviar(
       userIds: [uid], // Manda só para a pessoa escalada
       title: '🎸 Você foi escalado!',
       body: 'Sua presença foi solicitada no $nomeCulto para tocar $funcao.',
+      data: {'type': 'assignment_created', 'scheduleId': scheduleId},
     );
   }
 
@@ -26,11 +29,13 @@ class ApiNotification {
     List<String> uidsEquipe,
     String nomeMusica,
     String quemSugeriu,
+    String scheduleId,
   ) async {
     await _enviar(
       userIds: uidsEquipe, // Manda para todos da escala
       title: '🎵 Nova sugestão de repertório!',
       body: '$quemSugeriu sugeriu "$nomeMusica". Abra o app e confira!',
+      data: {'type': 'song_suggestion', 'scheduleId': scheduleId},
     );
   }
 
@@ -39,11 +44,13 @@ class ApiNotification {
     List<String> uidsAdmins,
     String quemRecusou,
     String nomeCulto,
+    String scheduleId,
   ) async {
     await _enviar(
       userIds: uidsAdmins, // Manda só para os líderes/admins
       title: '⚠️ Escala Recusada',
       body: '$quemRecusou informou que não poderá participar do $nomeCulto.',
+      data: {'type': 'assignment_response', 'scheduleId': scheduleId},
     );
   }
 
@@ -52,11 +59,13 @@ class ApiNotification {
     List<String> uidsAdmins,
     String quemAceitou,
     String nomeCulto,
+    String scheduleId,
   ) async {
     await _enviar(
       userIds: uidsAdmins, // Manda só para os líderes/admins
       title: '✅ Presença Confirmada',
       body: '$quemAceitou confirmou presença no $nomeCulto.',
+      data: {'type': 'assignment_response', 'scheduleId': scheduleId},
     );
   }
 
@@ -64,11 +73,13 @@ class ApiNotification {
     String uid,
     String nomeCulto,
     String funcao,
+    String scheduleId,
   ) async {
     await _enviar(
       userIds: [uid],
       title: 'Escala atualizada',
       body: 'Você foi removido(a) de $funcao no $nomeCulto.',
+      data: {'type': 'assignment_removed', 'scheduleId': scheduleId},
     );
   }
 
@@ -80,61 +91,72 @@ class ApiNotification {
       userIds: uidsAdmins,
       title: 'Novo membro na equipe',
       body: '$nomeMembro entrou no ministério pelo código de convite.',
+      data: {'type': 'new_member'},
     );
   }
 
   static Future<void> notificarEscalaAtualizada(
     List<String> uidsEquipe,
     String nomeCulto,
+    String scheduleId,
   ) async {
     await _enviar(
       userIds: uidsEquipe,
       title: 'Escala atualizada',
       body: 'O $nomeCulto teve nome ou horário alterado. Confira no app.',
+      data: {'type': 'schedule_updated', 'scheduleId': scheduleId},
     );
   }
 
   static Future<void> notificarEscalaCancelada(
     List<String> uidsEquipe,
     String nomeCulto,
+    String scheduleId,
   ) async {
     await _enviar(
       userIds: uidsEquipe,
       title: 'Escala cancelada',
       body: 'O $nomeCulto foi removido da agenda.',
+      data: {'type': 'schedule_cancelled', 'scheduleId': scheduleId},
     );
   }
 
   static Future<void> notificarMusicaAprovada(
     List<String> uidsEquipe,
     String nomeMusica,
+    String scheduleId,
   ) async {
     await _enviar(
       userIds: uidsEquipe,
       title: 'Música aprovada',
       body: '"$nomeMusica" entrou no repertório oficial.',
+      data: {'type': 'song_approved', 'scheduleId': scheduleId},
     );
   }
 
   static Future<void> notificarMusicaRejeitada(
     List<String> uidsEquipe,
     String nomeMusica,
+    String scheduleId,
   ) async {
     await _enviar(
       userIds: uidsEquipe,
       title: 'Sugestão encerrada',
       body: '"$nomeMusica" não entrou no repertório desta escala.',
+      data: {'type': 'song_rejected', 'scheduleId': scheduleId},
     );
   }
 
   static Future<void> notificarMusicaRemovida(
     List<String> uidsEquipe,
     String nomeMusica,
+    String scheduleId,
   ) async {
     await _enviar(
       userIds: uidsEquipe,
       title: 'Repertório atualizado',
       body: '"$nomeMusica" foi removida do repertório oficial.',
+      data: {'type': 'song_removed', 'scheduleId': scheduleId},
     );
   }
 
@@ -143,6 +165,7 @@ class ApiNotification {
     required List<String> userIds,
     required String title,
     required String body,
+    Map<String, String>? data,
   }) async {
     final targetUserIds = userIds
         .map((uid) => uid.trim())
@@ -163,16 +186,20 @@ class ApiNotification {
 
     try {
       final idToken = await user.getIdToken();
+      final appCheckToken = await _safeAppCheckToken();
       final response = await http.post(
         Uri.parse(_url),
         headers: {
           'Authorization': 'Bearer $idToken',
+          if (appCheckToken != null && appCheckToken.isNotEmpty)
+            'X-Firebase-AppCheck': appCheckToken,
           'Content-Type': 'application/json',
         },
         body: jsonEncode({
           'userIds': targetUserIds,
           'title': title,
           'body': body,
+          if (data != null) 'data': data,
         }),
       );
 
@@ -189,6 +216,15 @@ class ApiNotification {
       }
     } catch (e) {
       debugPrint('Erro ao enviar push pro Render: $e');
+    }
+  }
+
+  static Future<String?> _safeAppCheckToken() async {
+    try {
+      return FirebaseAppCheck.instance.getToken(false);
+    } catch (e) {
+      debugPrint('App Check indisponível para push: $e');
+      return null;
     }
   }
 }

@@ -57,6 +57,9 @@ dependencies:
 
   # Extrai cores predominantes das capas
   palette_generator_plus: ^1.0.0
+  firebase_app_check: ^0.4.7
+  firebase_crashlytics: ^5.3.0
+  firebase_analytics: ^12.5.0
 
 dev_dependencies:
   flutter_test:
