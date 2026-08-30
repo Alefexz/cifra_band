@@ -473,15 +473,17 @@ class TransposerEngine {
       return '${root}aug$marker';
     }
 
-    final susMatch = RegExp(
-      r'sus[24]?|4|2',
+    final chordBody = rest.split('/').first.replaceAll('*', '');
+    final explicitSusMatch = RegExp(
+      r'^sus[24]?',
       caseSensitive: false,
-    ).firstMatch(rest.split('/').first);
-    if (susMatch != null) {
-      final suffix = susMatch.group(0)!.toLowerCase().startsWith('sus')
-          ? susMatch.group(0)!
-          : 'sus${susMatch.group(0)!}';
-      return '$root$suffix$marker';
+    ).firstMatch(chordBody);
+    if (explicitSusMatch != null) {
+      return '$root${explicitSusMatch.group(0)!}$marker';
+    }
+
+    if (RegExp(r'^4(?:\([^)]*\))?$').hasMatch(chordBody)) {
+      return '${root}sus4$marker';
     }
 
     final isMinor = lowerRest.startsWith('m') && !lowerRest.startsWith('maj');

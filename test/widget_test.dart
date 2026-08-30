@@ -95,6 +95,14 @@ void main() {
     expect(simplified, '[Intro] Am D G C F#m7(b5) B Gsus4');
   });
 
+  test('simplifyCifra does not turn add2 chords into sus2 everywhere', () {
+    const cifra = '[Intro] C2 A2 D2/F# Eadd9 Gsus2 Asus4 G4';
+
+    final simplified = TransposerEngine.simplifyCifra(cifra);
+
+    expect(simplified, '[Intro] C A D E Gsus2 Asus4 Gsus4');
+  });
+
   test('transposeCifra keeps tab lines and lyrics untouched', () {
     const cifra = '''
 [Intro] C G Am F
