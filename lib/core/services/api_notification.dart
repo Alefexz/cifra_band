@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'app_diagnostics_service.dart';
+
 class ApiNotification {
   static const String _url = 'https://cifraband-api.onrender.com/notificar';
 
@@ -174,12 +176,22 @@ class ApiNotification {
 
     if (targetUserIds.isEmpty) {
       debugPrint('Push ignorado: nenhum UID de destino informado.');
+      AppDiagnosticsService.log(
+        'Push ignorado sem destino',
+        level: 'warning',
+        context: {'title': title, 'data': data},
+      );
       return;
     }
 
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       debugPrint('Push ignorado: usuário não está logado.');
+      AppDiagnosticsService.log(
+        'Push ignorado sem usuario logado',
+        level: 'warning',
+        context: {'title': title, 'data': data},
+      );
       return;
     }
 
@@ -195,7 +207,7 @@ class ApiNotification {
           'userIds': targetUserIds,
           'title': title,
           'body': body,
-          if (data != null) 'data': data,
+          'data': data ?? const <String, String>{},
         }),
       );
 
@@ -204,14 +216,42 @@ class ApiNotification {
           'Erro ao enviar push pro Render (${targetUserIds.length} UIDs): '
           'HTTP ${response.statusCode} ${response.body}',
         );
+        AppDiagnosticsService.log(
+          'Falha HTTP ao enviar push',
+          level: 'error',
+          context: {
+            'statusCode': response.statusCode,
+            'body': response.body,
+            'targetCount': targetUserIds.length,
+            'data': data,
+          },
+        );
       } else {
         debugPrint(
           'Push enviado para o Render (${targetUserIds.length} UIDs): '
           '${response.body}',
         );
+        AppDiagnosticsService.log(
+          'Push enviado para o backend',
+          context: {
+            'targetCount': targetUserIds.length,
+            'title': title,
+            'data': data,
+          },
+        );
       }
     } catch (e) {
       debugPrint('Erro ao enviar push pro Render: $e');
+      AppDiagnosticsService.log(
+        'Erro ao enviar push para o backend',
+        level: 'error',
+        error: e,
+        context: {
+          'targetCount': targetUserIds.length,
+          'title': title,
+          'data': data,
+        },
+      );
     }
   }
 }

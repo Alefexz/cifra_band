@@ -9,6 +9,9 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'app_diagnostics_service.dart';
+import 'push_notification_service.dart';
+
 class AppUpdateInfo {
   const AppUpdateInfo({
     required this.latestVersion,
@@ -73,11 +76,23 @@ class AppUpdateService {
       debugPrint(
         'Verificando atualizacao: instalada ${packageInfo.version}+$currentBuild',
       );
+      AppDiagnosticsService.log(
+        'Verificando atualizacao do app',
+        context: {
+          'installedVersion': packageInfo.version,
+          'installedBuild': currentBuild,
+        },
+      );
 
       final response = await http.get(Uri.parse(_versionUrl)).timeout(_timeout);
 
       if (response.statusCode != 200) {
         debugPrint('Falha ao consultar versão do app: ${response.statusCode}');
+        AppDiagnosticsService.log(
+          'Falha HTTP ao consultar versao do app',
+          level: 'warning',
+          context: {'statusCode': response.statusCode},
+        );
         return;
       }
 
@@ -93,6 +108,26 @@ class AppUpdateService {
       if (updateInfo.apkUrl.isEmpty) return;
       if (!context.mounted) return;
 
+      unawaited(
+        PushNotificationService.showLocalNotification(
+          title: 'Nova atualização disponível',
+          body:
+              'Cifra Band ${updateInfo.latestVersion}+${updateInfo.latestBuild} já pode ser instalada.',
+          data: {
+            'type': 'app_update_available',
+            'latestBuild': '${updateInfo.latestBuild}',
+          },
+        ),
+      );
+      AppDiagnosticsService.log(
+        'Atualizacao disponivel',
+        context: {
+          'latestVersion': updateInfo.latestVersion,
+          'latestBuild': updateInfo.latestBuild,
+          'forced': updateInfo.isForcedFor(currentBuild),
+        },
+      );
+
       if (Navigator.maybeOf(context, rootNavigator: true) == null) {
         debugPrint('Atualizacao encontrada, mas Navigator ainda indisponivel.');
         return;
@@ -107,6 +142,11 @@ class AppUpdateService {
       );
     } catch (error) {
       debugPrint('Erro ao verificar atualização do app: $error');
+      AppDiagnosticsService.log(
+        'Erro ao verificar atualizacao do app',
+        level: 'warning',
+        error: error,
+      );
     } finally {
       _checking = false;
     }
@@ -214,11 +254,21 @@ class AppUpdateService {
         .timeout(const Duration(seconds: 30));
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
+      AppDiagnosticsService.log(
+        'Download da APK falhou por HTTP',
+        level: 'error',
+        context: {'statusCode': response.statusCode},
+      );
       throw HttpException('Download retornou HTTP ${response.statusCode}.');
     }
 
     final contentType = response.headers['content-type'] ?? '';
     if (contentType.contains('text/html')) {
+      AppDiagnosticsService.log(
+        'Link de atualizacao retornou HTML em vez de APK',
+        level: 'error',
+        context: {'contentType': contentType, 'url': '$uri'},
+      );
       throw const FormatException('O link recebido nao aponta para uma APK.');
     }
 
@@ -246,6 +296,11 @@ class AppUpdateService {
     }
 
     if (await apkFile.length() == 0) {
+      AppDiagnosticsService.log(
+        'APK baixada ficou vazia',
+        level: 'error',
+        context: {'path': apkFile.path},
+      );
       throw const FileSystemException('APK baixada vazia.');
     }
 
@@ -370,6 +425,16 @@ class _ApkDownloadDialogState extends State<_ApkDownloadDialog> {
       }
     } catch (error) {
       debugPrint('Falha ao baixar/instalar APK: $error');
+      AppDiagnosticsService.log(
+        'Falha ao baixar ou instalar APK',
+        level: 'error',
+        error: error,
+        context: {
+          'latestVersion': widget.updateInfo.latestVersion,
+          'latestBuild': widget.updateInfo.latestBuild,
+          'apkUrl': widget.updateInfo.apkUrl,
+        },
+      );
       if (!mounted) return;
       setState(() {
         _failed = true;

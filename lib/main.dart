@@ -10,6 +10,7 @@ import 'package:firebase_messaging/firebase_messaging.dart'; // ⚠️ NOVO IMPO
 
 import 'core/theme/app_theme.dart';
 import 'config/routes/app_router.dart';
+import 'core/services/app_diagnostics_service.dart';
 import 'core/services/app_update_service.dart';
 import 'core/services/backend_warmup_service.dart';
 import 'firebase_options.dart';
@@ -33,9 +34,26 @@ void main() {
       );
 
       await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
-      FlutterError.onError =
-          FirebaseCrashlytics.instance.recordFlutterFatalError;
+      FlutterError.onError = (details) {
+        AppDiagnosticsService.log(
+          'Erro fatal do Flutter',
+          level: 'fatal',
+          error: details.exception,
+          stackTrace: details.stack,
+          context: {
+            'library': details.library,
+            'context': details.context?.toString(),
+          },
+        );
+        FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+      };
       PlatformDispatcher.instance.onError = (error, stack) {
+        AppDiagnosticsService.log(
+          'Erro fatal de plataforma',
+          level: 'fatal',
+          error: error,
+          stackTrace: stack,
+        );
         FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
         return true;
       };
@@ -48,6 +66,12 @@ void main() {
       runApp(const ProviderScope(child: CifraBandApp()));
     },
     (error, stack) {
+      AppDiagnosticsService.log(
+        'Erro capturado pela zona principal',
+        level: 'fatal',
+        error: error,
+        stackTrace: stack,
+      );
       if (Firebase.apps.isNotEmpty) {
         FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
       }

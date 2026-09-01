@@ -339,6 +339,30 @@
       overflow-wrap: anywhere;
     }
 
+    .logs {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, .035);
+      overflow: hidden;
+    }
+
+    .logs summary {
+      cursor: pointer;
+      padding: 12px 14px;
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .logs pre {
+      margin: 0;
+      padding: 0 14px 14px;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      color: #b9c2d6;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
     .empty {
       padding: 50px 22px;
       text-align: center;
@@ -647,6 +671,7 @@
       const deviceLabel = [device.manufacturer, device.model, device.release ? `Android ${device.release}` : ''].filter(Boolean).join(' • ') || 'Não informado';
       const adminReply = ticket.admin_reply || {};
       const adminReplyMessage = adminReply.message || '';
+      const logs = renderLogs(ticket.logs);
 
       return `
         <article class="card ticket">
@@ -669,6 +694,7 @@
             <div class="detail">App<strong>${escapeHtml(`${app.version || '-'}+${app.build_number || '-'}`)}</strong></div>
             <div class="detail">Ticket<strong>${escapeHtml(ticket.id || '-')}</strong></div>
           </div>
+          ${logs}
           ${adminReplyMessage ? `
             <div class="admin-reply">
               <strong>Resposta enviada</strong>
@@ -685,6 +711,24 @@
             <button data-action="closed" data-id="${escapeHtml(ticket.id)}" class="danger" type="button">Responder e fechar</button>
           </div>
         </article>
+      `;
+    }
+
+    function renderLogs(logs) {
+      if (!Array.isArray(logs) || !logs.length) return '';
+
+      const latest = logs.slice(-30).map((log) => {
+        const context = log.context ? `\n  contexto: ${JSON.stringify(log.context)}` : '';
+        const error = log.error ? `\n  erro: ${log.error}` : '';
+        const stack = log.stack ? `\n  stack: ${log.stack}` : '';
+        return `[${log.at || '-'}] ${log.level || 'info'} - ${log.message || ''}${error}${context}${stack}`;
+      }).join('\n\n');
+
+      return `
+        <details class="logs">
+          <summary>Logs técnicos do aparelho (${logs.length})</summary>
+          <pre>${escapeHtml(latest)}</pre>
+        </details>
       `;
     }
 

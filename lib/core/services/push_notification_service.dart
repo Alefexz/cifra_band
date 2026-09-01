@@ -40,6 +40,33 @@ class PushNotificationService {
     _listenForTokenRefresh(user.uid);
   }
 
+  static Future<void> showLocalNotification({
+    required String title,
+    required String body,
+    Map<String, String>? data,
+  }) async {
+    if (kIsWeb) return;
+
+    await _initializeLocalNotifications();
+
+    await _localNotifications.show(
+      id: DateTime.now().millisecondsSinceEpoch.remainder(100000),
+      title: title,
+      body: body,
+      payload: data?.entries.join('&'),
+      notificationDetails: NotificationDetails(
+        android: AndroidNotificationDetails(
+          _androidChannel.id,
+          _androidChannel.name,
+          channelDescription: _androidChannel.description,
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: const DarwinNotificationDetails(),
+      ),
+    );
+  }
+
   static Future<void> _requestPermission() async {
     await _messaging.setAutoInitEnabled(true);
 

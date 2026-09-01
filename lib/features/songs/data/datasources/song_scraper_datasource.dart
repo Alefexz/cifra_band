@@ -7,8 +7,28 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../../../../core/services/app_diagnostics_service.dart';
 import '../../domain/transposer_engine.dart';
 import '../models/song_model.dart';
+
+class SongSearchException implements Exception {
+  const SongSearchException({
+    required this.message,
+    this.code,
+    this.reason,
+    this.statusCode,
+    this.diagnostics,
+  });
+
+  final String message;
+  final String? code;
+  final String? reason;
+  final int? statusCode;
+  final Map<String, dynamic>? diagnostics;
+
+  @override
+  String toString() => message;
+}
 
 class SongScraperDatasource {
   static const Duration _timeout = Duration(seconds: 45);
@@ -90,8 +110,18 @@ class SongScraperDatasource {
         );
       }
       debugPrint('ℹ️ Não estava no cache global.');
+      AppDiagnosticsService.log(
+        'Cifra nao encontrada no cache global',
+        context: {'artist': artist, 'track': track, 'cacheId': docId},
+      );
     } catch (e) {
       debugPrint('⚠️ Falha ao consultar cache global (seguindo sem ele): $e');
+      AppDiagnosticsService.log(
+        'Falha ao consultar cache global',
+        level: 'warning',
+        error: e,
+        context: {'artist': artist, 'track': track, 'cacheId': docId},
+      );
     }
 
     // ============================================================
@@ -106,9 +136,24 @@ class SongScraperDatasource {
       debugPrint('📊 HTTP STATUS: ${response.statusCode}');
 
       if (response.statusCode != 200) {
-        throw Exception(
-          'Servidor retornou HTTP ${response.statusCode}. Cifra não encontrada.',
+        final searchError = _parseSearchError(
+          response,
+          artist: artist,
+          track: track,
         );
+        AppDiagnosticsService.log(
+          'Busca de cifra falhou no backend',
+          level: response.statusCode == 404 ? 'warning' : 'error',
+          context: {
+            'artist': artist,
+            'track': track,
+            'statusCode': response.statusCode,
+            'code': searchError.code,
+            'reason': searchError.reason,
+            'diagnostics': searchError.diagnostics,
+          },
+        );
+        throw searchError;
       }
 
       final dynamic decoded = json.decode(response.body);
@@ -145,6 +190,14 @@ class SongScraperDatasource {
       );
     } catch (e) {
       debugPrint('❌ Erro buscando no servidor: $e');
+      if (e is! SongSearchException) {
+        AppDiagnosticsService.log(
+          'Erro inesperado ao buscar cifra',
+          level: 'error',
+          error: e,
+          context: {'artist': artist, 'track': track},
+        );
+      }
       rethrow;
     }
 
@@ -179,6 +232,36 @@ class SongScraperDatasource {
     return {
       if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
     };
+  }
+
+  static SongSearchException _parseSearchError(
+    http.Response response, {
+    required String artist,
+    required String track,
+  }) {
+    Map<String, dynamic> decoded = const <String, dynamic>{};
+
+    try {
+      final dynamic body = json.decode(response.body);
+      if (body is Map<String, dynamic>) decoded = body;
+    } catch (_) {
+      decoded = const <String, dynamic>{};
+    }
+
+    final message = _clean(decoded['userMessage'] ?? decoded['message']);
+    final diagnostics = decoded['diagnostics'] is Map<String, dynamic>
+        ? decoded['diagnostics'] as Map<String, dynamic>
+        : null;
+
+    return SongSearchException(
+      message: message.isEmpty
+          ? 'Nao encontrei uma cifra confiavel para "$track" de $artist.'
+          : message,
+      code: _clean(decoded['error']),
+      reason: _clean(decoded['reason']),
+      statusCode: response.statusCode,
+      diagnostics: diagnostics,
+    );
   }
 
   static String _clean(dynamic value) {

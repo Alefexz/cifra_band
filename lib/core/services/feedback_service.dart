@@ -9,6 +9,8 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 
+import 'app_diagnostics_service.dart';
+
 class FeedbackService {
   FeedbackService._();
 
@@ -39,6 +41,10 @@ class FeedbackService {
     final userDoc = await _firestore.collection('users').doc(user.uid).get();
     final userData = userDoc.data() ?? const <String, dynamic>{};
     final token = await user.getIdToken();
+    AppDiagnosticsService.log(
+      'Enviando feedback',
+      context: {'type': type, 'severity': severity, 'screen': screen},
+    );
     final response = await http
         .post(
           _feedbackUri,
@@ -62,11 +68,17 @@ class FeedbackService {
               'package_name': packageInfo.packageName,
             },
             'device': await _collectDeviceInfo(),
+            'logs': AppDiagnosticsService.recentLogs(),
           }),
         )
         .timeout(const Duration(seconds: 15));
 
     if (response.statusCode != 201) {
+      AppDiagnosticsService.log(
+        'Falha HTTP ao enviar feedback',
+        level: 'error',
+        context: {'statusCode': response.statusCode, 'body': response.body},
+      );
       throw StateError('API retornou HTTP ${response.statusCode}.');
     }
 
@@ -81,6 +93,10 @@ class FeedbackService {
 
     FirebaseCrashlytics.instance.log(
       'Feedback enviado: $ticketId / $type / $severity',
+    );
+    AppDiagnosticsService.log(
+      'Feedback enviado com sucesso',
+      context: {'ticketId': ticketId},
     );
     return ticketId;
   }

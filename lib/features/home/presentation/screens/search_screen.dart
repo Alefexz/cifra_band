@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
+import 'package:cifra_band/features/songs/data/datasources/song_scraper_datasource.dart';
 import 'package:cifra_band/features/songs/domain/entities/song_entity.dart';
 import 'package:cifra_band/features/songs/presentation/providers/song_providers.dart';
 import '../widgets/logo_loader.dart';
@@ -594,14 +595,32 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           backgroundColor: Colors.redAccent,
         ),
       );
+    } on SongSearchException catch (e) {
+      clearColdStartWarning();
+      if (!mounted) return;
+      setState(() => _loadingTrack = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.message),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 5),
+          action: SnackBarAction(
+            label: 'Suporte',
+            textColor: Colors.white,
+            onPressed: () => context.push('/feedback'),
+          ),
+        ),
+      );
     } catch (e) {
       clearColdStartWarning();
       if (!mounted) return;
       setState(() => _loadingTrack = null);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Não encontrei a cifra no momento.'),
+          content: Text('Não consegui buscar essa cifra agora. Tente de novo.'),
           backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
