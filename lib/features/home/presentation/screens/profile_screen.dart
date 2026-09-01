@@ -332,7 +332,7 @@ class ProfileScreen extends ConsumerWidget {
                     color: const Color(0xFF16161E),
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: Colors.blueAccent.withOpacity(0.5),
+                      color: Colors.blueAccent.withValues(alpha: 0.5),
                       width: 3,
                     ),
                   ),
@@ -410,10 +410,10 @@ class ProfileScreen extends ConsumerWidget {
                       vertical: 12,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.blueAccent.withOpacity(0.1),
+                      color: Colors.blueAccent.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: Colors.blueAccent.withOpacity(0.3),
+                        color: Colors.blueAccent.withValues(alpha: 0.3),
                       ),
                     ),
                     child: Row(
@@ -465,7 +465,7 @@ class ProfileScreen extends ConsumerWidget {
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueAccent.withOpacity(0.2),
+                      backgroundColor: Colors.blueAccent.withValues(alpha: 0.2),
                       foregroundColor: Colors.blueAccent,
                       elevation: 0,
                       shape: RoundedRectangleBorder(
@@ -525,10 +525,10 @@ class ProfileScreen extends ConsumerWidget {
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
-                    onPressed: () => context.push('/feedback'),
+                    onPressed: () => context.push('/my-support'),
                     icon: const Icon(Icons.support_agent_rounded),
                     label: const Text(
-                      'Enviar Feedback',
+                      'Meu Suporte',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     style: ElevatedButton.styleFrom(
@@ -587,7 +587,9 @@ class ProfileScreen extends ConsumerWidget {
                   decoration: BoxDecoration(
                     color: const Color(0xFF16161E),
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white.withOpacity(0.05)),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: 0.05),
+                    ),
                   ),
                   child: Column(
                     children: [
@@ -595,7 +597,7 @@ class ProfileScreen extends ConsumerWidget {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.orange.withOpacity(0.1),
+                            color: Colors.orange.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(
@@ -621,7 +623,7 @@ class ProfileScreen extends ConsumerWidget {
                         leading: Container(
                           padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: Colors.redAccent.withOpacity(0.1),
+                            color: Colors.redAccent.withValues(alpha: 0.1),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: const Icon(

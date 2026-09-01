@@ -36,11 +36,16 @@ class _SupportCenterScreenState extends State<SupportCenterScreen> {
     await _ticketsFuture;
   }
 
-  Future<void> _changeStatus(SupportTicket ticket, String status) async {
+  Future<void> _changeStatus(
+    SupportTicket ticket,
+    String status, {
+    String? reply,
+  }) async {
     try {
       await SupportTicketService.updateTicketStatus(
         ticketId: ticket.id,
         status: status,
+        reply: reply,
       );
       if (!mounted) return;
       Navigator.of(context, rootNavigator: true).pop();
@@ -65,6 +70,9 @@ class _SupportCenterScreenState extends State<SupportCenterScreen> {
   }
 
   void _showTicketDetails(SupportTicket ticket) {
+    final replyController = TextEditingController(
+      text: ticket.adminReplyMessage,
+    );
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -158,6 +166,33 @@ class _SupportCenterScreenState extends State<SupportCenterScreen> {
                   label: 'Criado',
                   value: _formatDate(ticket.createdAt),
                 ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: replyController,
+                  minLines: 4,
+                  maxLines: 7,
+                  maxLength: 1200,
+                  style: const TextStyle(color: Colors.white, height: 1.35),
+                  cursorColor: Colors.blueAccent,
+                  decoration: InputDecoration(
+                    labelText: 'Resposta para o usuário',
+                    labelStyle: TextStyle(color: Colors.grey.shade400),
+                    hintText:
+                        'Ex: obrigado pelo aviso. Corrigimos isso na versão 1.1.1.',
+                    hintStyle: TextStyle(color: Colors.grey.shade600),
+                    filled: true,
+                    fillColor: Colors.white.withValues(alpha: 0.04),
+                    counterStyle: TextStyle(color: Colors.grey.shade600),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Colors.blueAccent),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 22),
                 Row(
                   children: [
@@ -165,7 +200,11 @@ class _SupportCenterScreenState extends State<SupportCenterScreen> {
                       child: OutlinedButton.icon(
                         onPressed: ticket.status == 'open'
                             ? null
-                            : () => _changeStatus(ticket, 'open'),
+                            : () => _changeStatus(
+                                ticket,
+                                'open',
+                                reply: replyController.text,
+                              ),
                         icon: const Icon(Icons.refresh_rounded),
                         label: const Text('Reabrir'),
                         style: OutlinedButton.styleFrom(
@@ -182,7 +221,11 @@ class _SupportCenterScreenState extends State<SupportCenterScreen> {
                       child: FilledButton.icon(
                         onPressed: ticket.status == 'resolved'
                             ? null
-                            : () => _changeStatus(ticket, 'resolved'),
+                            : () => _changeStatus(
+                                ticket,
+                                'resolved',
+                                reply: replyController.text,
+                              ),
                         icon: const Icon(Icons.check_circle_rounded),
                         label: const Text('Resolver'),
                         style: FilledButton.styleFrom(
@@ -200,7 +243,11 @@ class _SupportCenterScreenState extends State<SupportCenterScreen> {
                   child: TextButton.icon(
                     onPressed: ticket.status == 'closed'
                         ? null
-                        : () => _changeStatus(ticket, 'closed'),
+                        : () => _changeStatus(
+                            ticket,
+                            'closed',
+                            reply: replyController.text,
+                          ),
                     icon: const Icon(Icons.archive_rounded),
                     label: const Text('Fechar sem ação'),
                     style: TextButton.styleFrom(
@@ -213,7 +260,7 @@ class _SupportCenterScreenState extends State<SupportCenterScreen> {
           },
         );
       },
-    );
+    ).whenComplete(replyController.dispose);
   }
 
   @override

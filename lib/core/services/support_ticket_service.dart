@@ -15,6 +15,7 @@ class SupportTicket {
     required this.user,
     required this.app,
     required this.device,
+    required this.adminReply,
   });
 
   final String id;
@@ -27,6 +28,7 @@ class SupportTicket {
   final Map<String, dynamic> user;
   final Map<String, dynamic> app;
   final Map<String, dynamic> device;
+  final Map<String, dynamic> adminReply;
 
   factory SupportTicket.fromJson(Map<String, dynamic> json) {
     return SupportTicket(
@@ -40,7 +42,16 @@ class SupportTicket {
       user: _readMap(json['user']),
       app: _readMap(json['app']),
       device: _readMap(json['device']),
+      adminReply: _readMap(json['admin_reply']),
     );
+  }
+
+  bool get hasAdminReply {
+    return '${adminReply['message'] ?? ''}'.trim().isNotEmpty;
+  }
+
+  String get adminReplyMessage {
+    return '${adminReply['message'] ?? ''}'.trim();
   }
 
   String get typeLabel {
@@ -98,6 +109,16 @@ class SupportTicket {
   }
 }
 
+class MySupportTicketsResult {
+  const MySupportTicketsResult({
+    required this.tickets,
+    required this.canCreateNew,
+  });
+
+  final List<SupportTicket> tickets;
+  final bool canCreateNew;
+}
+
 class SupportTicketService {
   SupportTicketService._();
 
@@ -137,9 +158,46 @@ class SupportTicketService {
         .toList();
   }
 
+  static Future<MySupportTicketsResult> fetchMyTickets() async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw StateError('Você precisa estar logado.');
+    }
+
+    final token = await user.getIdToken();
+    final response = await http
+        .get(
+          _baseUri.replace(path: '/my-support-tickets'),
+          headers: {'Authorization': 'Bearer $token'},
+        )
+        .timeout(const Duration(seconds: 15));
+
+    final decoded = _decodeBody(response.body);
+    if (response.statusCode != 200) {
+      throw StateError(_errorMessage(decoded, response.statusCode));
+    }
+
+    final rawTickets = decoded['tickets'];
+    final tickets = rawTickets is List
+        ? rawTickets
+              .whereType<Map>()
+              .map(
+                (item) =>
+                    SupportTicket.fromJson(Map<String, dynamic>.from(item)),
+              )
+              .toList()
+        : <SupportTicket>[];
+
+    return MySupportTicketsResult(
+      tickets: tickets,
+      canCreateNew: decoded['canCreateNew'] != false,
+    );
+  }
+
   static Future<void> updateTicketStatus({
     required String ticketId,
     required String status,
+    String? reply,
   }) async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -154,7 +212,7 @@ class SupportTicketService {
             'Authorization': 'Bearer $token',
             'Content-Type': 'application/json',
           },
-          body: jsonEncode({'status': status}),
+          body: jsonEncode({'status': status, 'reply': reply?.trim()}),
         )
         .timeout(const Duration(seconds: 15));
 

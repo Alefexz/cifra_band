@@ -147,7 +147,20 @@
       outline: none;
     }
 
-    input:focus, select:focus {
+    textarea {
+      width: 100%;
+      min-height: 92px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      background: #101018;
+      color: var(--text);
+      border-radius: 12px;
+      padding: 13px 14px;
+      outline: none;
+      line-height: 1.4;
+    }
+
+    input:focus, select:focus, textarea:focus {
       border-color: rgba(66, 133, 255, .8);
       box-shadow: 0 0 0 4px rgba(66, 133, 255, .12);
     }
@@ -269,6 +282,30 @@
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
+    }
+
+    .reply-box {
+      display: grid;
+      gap: 9px;
+    }
+
+    .reply-box label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .admin-reply {
+      padding: 14px;
+      border-radius: 14px;
+      background: rgba(34, 197, 94, .08);
+      border: 1px solid rgba(34, 197, 94, .16);
+    }
+
+    .admin-reply strong {
+      display: block;
+      color: #79e69e;
+      margin-bottom: 6px;
     }
 
     .actions button {
@@ -538,10 +575,10 @@
       }
     }
 
-    async function setTicketStatus(ticketId, status) {
+    async function setTicketStatus(ticketId, status, reply = '') {
       await api(`/support-tickets/${encodeURIComponent(ticketId)}`, {
         method: 'PATCH',
-        body: JSON.stringify({ status })
+        body: JSON.stringify({ status, reply })
       });
       showToast(`Feedback marcado como ${statusLabels[status] || status}.`);
       await loadTickets();
@@ -589,7 +626,9 @@
         button.addEventListener('click', async () => {
           button.disabled = true;
           try {
-            await setTicketStatus(button.dataset.id, button.dataset.action);
+            const replyInput = document.querySelector(`[data-reply-id="${CSS.escape(button.dataset.id)}"]`);
+            const reply = replyInput ? replyInput.value : '';
+            await setTicketStatus(button.dataset.id, button.dataset.action, reply);
           } catch (error) {
             showToast(error.message);
             button.disabled = false;
@@ -606,6 +645,8 @@
       const statusClass = ticket.status === 'resolved' ? 'resolved' : ticket.status === 'closed' ? 'closed' : '';
       const severityClass = ticket.severity === 'critical' ? 'critical' : ticket.severity === 'high' ? 'high' : '';
       const deviceLabel = [device.manufacturer, device.model, device.release ? `Android ${device.release}` : ''].filter(Boolean).join(' • ') || 'Não informado';
+      const adminReply = ticket.admin_reply || {};
+      const adminReplyMessage = adminReply.message || '';
 
       return `
         <article class="card ticket">
@@ -628,10 +669,20 @@
             <div class="detail">App<strong>${escapeHtml(`${app.version || '-'}+${app.build_number || '-'}`)}</strong></div>
             <div class="detail">Ticket<strong>${escapeHtml(ticket.id || '-')}</strong></div>
           </div>
+          ${adminReplyMessage ? `
+            <div class="admin-reply">
+              <strong>Resposta enviada</strong>
+              <p class="ticket-message">${escapeHtml(adminReplyMessage)}</p>
+            </div>
+          ` : ''}
+          <div class="reply-box">
+            <label for="reply-${escapeHtml(ticket.id)}">Resposta para o usuário</label>
+            <textarea id="reply-${escapeHtml(ticket.id)}" data-reply-id="${escapeHtml(ticket.id)}" placeholder="Ex: obrigado pelo aviso. Corrigimos isso na atualização 1.1.1.">${escapeHtml(adminReplyMessage)}</textarea>
+          </div>
           <div class="actions">
             <button data-action="open" data-id="${escapeHtml(ticket.id)}" type="button">Reabrir</button>
-            <button data-action="resolved" data-id="${escapeHtml(ticket.id)}" class="success" type="button">Resolver</button>
-            <button data-action="closed" data-id="${escapeHtml(ticket.id)}" class="danger" type="button">Fechar</button>
+            <button data-action="resolved" data-id="${escapeHtml(ticket.id)}" class="success" type="button">Responder e resolver</button>
+            <button data-action="closed" data-id="${escapeHtml(ticket.id)}" class="danger" type="button">Responder e fechar</button>
           </div>
         </article>
       `;
