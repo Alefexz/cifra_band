@@ -12,6 +12,7 @@ import 'package:cifra_band/features/home/presentation/screens/event_detail_scree
 import 'package:cifra_band/features/home/presentation/screens/add_friend_screen.dart'; // ⚠️ IMPORTAÇÃO DA NOVA TELA AQUI
 import 'package:cifra_band/features/home/presentation/screens/cult_setlist_player_screen.dart';
 import 'package:cifra_band/features/home/presentation/screens/availability_screen.dart';
+import 'package:cifra_band/features/home/presentation/screens/feedback_screen.dart';
 
 import 'package:cifra_band/features/setlist/domain/entities/setlist_entity.dart';
 import 'package:cifra_band/features/setlist/presentation/screens/setlist_detail_screen.dart';
@@ -24,7 +25,10 @@ import 'package:cifra_band/features/songs/presentation/screens/cifra_screen.dart
 import 'package:cifra_band/features/songs/data/models/song_model.dart';
 import 'package:cifra_band/features/songs/domain/entities/song_entity.dart';
 
+final rootNavigatorKey = GlobalKey<NavigatorState>();
+
 final appRouter = GoRouter(
+  navigatorKey: rootNavigatorKey,
   initialLocation: '/',
   observers: [FirebaseAnalyticsObserver(analytics: FirebaseAnalytics.instance)],
   redirect: (context, state) {
@@ -121,6 +125,11 @@ final appRouter = GoRouter(
       path: '/availability',
       pageBuilder: (context, state) =>
           _buildFadeTransition(context, state, const AvailabilityScreen()),
+    ),
+    GoRoute(
+      path: '/feedback',
+      pageBuilder: (context, state) =>
+          _buildFadeTransition(context, state, const FeedbackScreen()),
     ),
     GoRoute(
       path: '/add-song',

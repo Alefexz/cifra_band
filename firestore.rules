@@ -263,6 +263,30 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /support_tickets/{ticketId} {
+      allow create: if signedIn()
+        && request.resource.data.type in [
+          'bug',
+          'wrong_chord',
+          'question',
+          'suggestion'
+        ]
+        && request.resource.data.severity in [
+          'critical',
+          'high',
+          'medium',
+          'low'
+        ]
+        && request.resource.data.message is string
+        && request.resource.data.message.size() >= 8
+        && request.resource.data.message.size() <= 1200
+        && request.resource.data.user.uid == request.auth.uid
+        && request.resource.data.status == 'open'
+        && request.resource.data.source == 'app';
+      allow read: if signedIn() && resource.data.user.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
     match /artist_aliases/{docId} {
       allow read, write: if false;
     }

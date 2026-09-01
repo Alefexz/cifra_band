@@ -3,7 +3,6 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
@@ -177,21 +176,9 @@ class SongScraperDatasource {
   static Future<Map<String, String>> _authHeaders() async {
     final user = FirebaseAuth.instance.currentUser;
     final token = await user?.getIdToken();
-    final appCheckToken = await _safeAppCheckToken();
     return {
       if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
-      if (appCheckToken != null && appCheckToken.isNotEmpty)
-        'X-Firebase-AppCheck': appCheckToken,
     };
-  }
-
-  static Future<String?> _safeAppCheckToken() async {
-    try {
-      return FirebaseAppCheck.instance.getToken(false);
-    } catch (e) {
-      debugPrint('App Check indisponível para busca: $e');
-      return null;
-    }
   }
 
   static String _clean(dynamic value) {

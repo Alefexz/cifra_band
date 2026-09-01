@@ -2,7 +2,6 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math'; // ⚠️ O IMPORT QUE FALTAVA PARA O RANDOM() FUNCIONAR!
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -29,11 +28,92 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   List<dynamic> _songs = [];
   List<dynamic> _albums = [];
   List<dynamic> _artistTopSongs = [];
+  List<Map<String, dynamic>> _discoverySongs = [];
+  bool _isLoadingDiscovery = false;
   Map<String, dynamic>? _artist;
   String _activeFilter = 'Músicas';
   int _searchRequestId = 0;
 
   static const String _apiHost = 'cifraband-api.onrender.com';
+
+  static const List<Map<String, String>> _curatedDiscoverySongs = [
+    {
+      'trackName': 'Ah, Jesus / Coração Igual ao Teu',
+      'cleanTrackName': 'Ah, Jesus / Coração Igual ao Teu',
+      'artistName': 'Julliany Souza',
+      'cacheId': 'julliany_souza_ah_jesus_coracao_igual_ao_teu',
+    },
+    {
+      'trackName': 'Tudo É Perda',
+      'cleanTrackName': 'Tudo É Perda',
+      'artistName': 'Felipe Rodrigues',
+      'cacheId': 'felipe_rodrigues_tudo_e_perda',
+    },
+    {
+      'trackName': 'Todavia Me Alegrarei',
+      'cleanTrackName': 'Todavia Me Alegrarei',
+      'artistName': 'Samuel Messias',
+      'cacheId': 'samuel_messias_todavia_me_alegrarei',
+    },
+    {
+      'trackName': 'Não Me Deixe Esquecer',
+      'cleanTrackName': 'Não Me Deixe Esquecer',
+      'artistName': 'Valesca Mayssa',
+      'cacheId': 'valesca_mayssa_nao_me_deixe_esquecer',
+    },
+    {
+      'trackName': 'É Tudo Sobre Você / Ser Mudado',
+      'cleanTrackName': 'É Tudo Sobre Você / Ser Mudado',
+      'artistName': 'Morada',
+      'cacheId': 'morada_e_tudo_sobre_voce_ser_mudado',
+    },
+    {
+      'trackName': 'Em Todas As Áreas',
+      'cleanTrackName': 'Em Todas As Áreas',
+      'artistName': 'Gabriel Brito',
+      'cacheId': 'gabriel_brito_em_todas_as_areas',
+    },
+    {
+      'trackName': 'Atos 2',
+      'cleanTrackName': 'Atos 2',
+      'artistName': 'Gabriela Rocha',
+      'cacheId': 'gabriela_rocha_atos_2',
+    },
+    {
+      'trackName': 'Deus de Obras Completas',
+      'cleanTrackName': 'Deus de Obras Completas',
+      'artistName': 'Kemilly Santos',
+      'cacheId': 'kemilly_santos_deus_de_obras_completas',
+    },
+    {
+      'trackName': 'Sublime',
+      'cleanTrackName': 'Sublime',
+      'artistName': 'FHOP',
+      'cacheId': 'fhop_sublime',
+    },
+    {
+      'trackName': 'É Tudo Sobre Você',
+      'cleanTrackName': 'É Tudo Sobre Você',
+      'artistName': 'Morada',
+      'cacheId': 'morada_e_tudo_sobre_voce',
+    },
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _discoverySongs = _curatedDiscoverySongs
+        .map((song) => Map<String, dynamic>.from(song))
+        .toList();
+    unawaited(_loadDiscoverySongs());
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
 
   Future<Map<String, dynamic>> _getJson(Uri url) async {
     final response = await http.get(url).timeout(const Duration(seconds: 15));
@@ -42,6 +122,200 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final decoded = json.decode(response.body);
     if (decoded is! Map<String, dynamic>) throw Exception('Resposta inválida.');
     return decoded;
+  }
+
+  Future<void> _loadDiscoverySongs() async {
+    if (_isLoadingDiscovery) return;
+    _isLoadingDiscovery = true;
+
+    try {
+      final songs = <Map<String, dynamic>>[];
+      final seen = <String>{};
+
+      try {
+        await _addCachedDiscoverySongs(songs, seen);
+      } catch (error) {
+        debugPrint('⚠️ Erro carregando descobertas do cache global: $error');
+      }
+
+      for (final seed in _curatedDiscoverySongs) {
+        final seededSong = Map<String, dynamic>.from(seed);
+        final track = seededSong['trackName']?.toString() ?? '';
+        final artist = seededSong['artistName']?.toString() ?? '';
+        final key =
+            '${_normalizeForDiscovery(artist)}|${_normalizeForDiscovery(track)}';
+
+        if (seen.contains(key)) {
+          continue;
+        }
+
+        try {
+          final hydrated = await _hydrateSongArtwork(seededSong);
+          if (seen.add(key)) songs.add(hydrated);
+        } catch (_) {
+          if (seen.add(key)) songs.add(seededSong);
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _discoverySongs = songs.isEmpty
+            ? _curatedDiscoverySongs
+                  .map((song) => Map<String, dynamic>.from(song))
+                  .toList()
+            : songs;
+      });
+    } finally {
+      _isLoadingDiscovery = false;
+    }
+  }
+
+  Future<void> _addCachedDiscoverySongs(
+    List<Map<String, dynamic>> songs,
+    Set<String> seen,
+  ) async {
+    try {
+      final firestore = FirebaseFirestore.instance;
+
+      final curatedDocs = await Future.wait(
+        _curatedDiscoverySongs.map((song) {
+          final cacheId = song['cacheId'];
+          if (cacheId == null || cacheId.isEmpty) {
+            return Future.value(null);
+          }
+          return firestore.collection('global_cifras').doc(cacheId).get();
+        }),
+      );
+
+      for (final snapshot in curatedDocs) {
+        if (snapshot == null || !snapshot.exists) continue;
+        final song = await _cachedSongFromSnapshot(snapshot);
+        _addDiscoverySong(songs, seen, song);
+      }
+
+      final recentCache = await firestore
+          .collection('global_cifras')
+          .orderBy('updated_at', descending: true)
+          .limit(12)
+          .get();
+
+      for (final snapshot in recentCache.docs) {
+        final song = await _cachedSongFromSnapshot(snapshot);
+        _addDiscoverySong(songs, seen, song);
+      }
+    } catch (error) {
+      debugPrint('⚠️ Cache global indisponível na descoberta: $error');
+    }
+  }
+
+  Future<Map<String, dynamic>> _cachedSongFromSnapshot(
+    DocumentSnapshot<Map<String, dynamic>> snapshot,
+  ) async {
+    final data = snapshot.data() ?? {};
+    final title = data['title']?.toString() ?? '';
+    final artist = data['artist']?.toString() ?? '';
+    final song = <String, dynamic>{
+      'cacheId': snapshot.id,
+      'trackName': title,
+      'cleanTrackName': _cleanVisualTrackName(title),
+      'artistName': artist,
+      'originalKey': data['originalKey']?.toString() ?? 'C',
+      'shapeKey': data['shapeKey']?.toString(),
+      'capo': data['capo']?.toString(),
+      'content': data['content']?.toString() ?? '',
+      'url': data['url']?.toString() ?? '',
+      'source': data['source']?.toString() ?? 'global_cache',
+      'isCachedCifra': true,
+    };
+
+    try {
+      return await _hydrateSongArtwork(song);
+    } catch (_) {
+      return song;
+    }
+  }
+
+  void _addDiscoverySong(
+    List<Map<String, dynamic>> songs,
+    Set<String> seen,
+    Map<String, dynamic> song,
+  ) {
+    final track = _displayTrack(song);
+    final artist = _displayArtist(song);
+    final content = song['content']?.toString() ?? '';
+    if (track.trim().isEmpty || artist.trim().isEmpty) return;
+    if (song['isCachedCifra'] == true && content.trim().length < 80) return;
+
+    final key =
+        '${_normalizeForDiscovery(artist)}|${_normalizeForDiscovery(track)}';
+    if (seen.add(key)) {
+      songs.add(song);
+    }
+  }
+
+  Future<Map<String, dynamic>> _hydrateSongArtwork(
+    Map<String, dynamic> song,
+  ) async {
+    final track = song['trackName']?.toString() ?? '';
+    final artist = song['artistName']?.toString() ?? '';
+
+    if ((song['artworkUrl100']?.toString() ?? '').isNotEmpty ||
+        track.isEmpty ||
+        artist.isEmpty) {
+      return song;
+    }
+
+    final url = Uri.https('itunes.apple.com', '/search', {
+      'term': '$track $artist',
+      'entity': 'song',
+      'limit': '3',
+      'country': 'br',
+    });
+
+    try {
+      final data = await _getJson(url);
+      final results = data['results'] as List? ?? [];
+      final match = results.whereType<Map>().firstWhere((item) {
+        final title = item['trackName']?.toString() ?? '';
+        final itemArtist = item['artistName']?.toString() ?? '';
+        return _normalizeForDiscovery(
+              title,
+            ).contains(_normalizeForDiscovery(track)) ||
+            _normalizeForDiscovery(
+              itemArtist,
+            ).contains(_normalizeForDiscovery(artist));
+      }, orElse: () => const {});
+
+      final artwork = match['artworkUrl100']?.toString() ?? '';
+      if (artwork.isNotEmpty) {
+        song['artworkUrl100'] = artwork;
+      }
+    } catch (_) {
+      return song;
+    }
+
+    return song;
+  }
+
+  String _cleanVisualTrackName(String title) {
+    return title
+        .replaceAll(RegExp(r'\(.*?\)'), '')
+        .replaceAll(RegExp(r'\[.*?\]'), '')
+        .trim();
+  }
+
+  String _normalizeForDiscovery(Object? value) {
+    return value
+        .toString()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[áàãâä]'), 'a')
+        .replaceAll(RegExp(r'[éèêë]'), 'e')
+        .replaceAll(RegExp(r'[íìîï]'), 'i')
+        .replaceAll(RegExp(r'[óòõôö]'), 'o')
+        .replaceAll(RegExp(r'[úùûü]'), 'u')
+        .replaceAll('ç', 'c')
+        .replaceAll(RegExp(r'[^a-z0-9]+'), ' ')
+        .trim();
   }
 
   // ============================================================
@@ -144,7 +418,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         final lookupUrl = Uri.https('itunes.apple.com', '/lookup', {
           'id': artistId.toString(),
           'entity': 'song',
-          'limit': '6',
+          'limit': '25',
           'country': 'br',
         });
         final albumUrl = Uri.https('itunes.apple.com', '/lookup', {
@@ -333,28 +607,43 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     }
   }
 
-  void _playTopSongs() {
-    if (_artistTopSongs.isEmpty) return;
-    final first = _artistTopSongs.first;
+  void _openDiscoverySong(Map<String, dynamic> song) {
+    final content = song['content']?.toString() ?? '';
+
+    if (song['isCachedCifra'] == true && content.trim().length >= 80) {
+      final songEntity = SongEntity(
+        id: song['cacheId']?.toString() ?? _displayTrack(song),
+        title: _displayTrack(song),
+        artist: _displayArtist(song),
+        originalKey: song['originalKey']?.toString() ?? 'C',
+        shapeKey: song['shapeKey']?.toString(),
+        capo: song['capo']?.toString(),
+        referenceUrl: song['referenceUrl']?.toString(),
+        rehearsalNotes: song['rehearsalNotes']?.toString(),
+        bpm: song['bpm']?.toString(),
+        content: content,
+        url: song['url']?.toString() ?? '',
+      );
+
+      context.push('/cifra', extra: songEntity);
+      return;
+    }
+
     _onSongSelected(
-      first['cleanTrackName']?.toString() ??
-          first['trackName']?.toString() ??
-          '',
-      first['artistName']?.toString() ?? '',
-      first['artworkUrl100']?.toString() ?? '',
+      _searchTrack(song),
+      _displayArtist(song),
+      song['artworkUrl100']?.toString() ?? '',
     );
   }
 
-  void _playArtistMix() {
-    if (_artistTopSongs.isEmpty && _songs.isEmpty) return;
-    final source = _artistTopSongs.isNotEmpty ? _artistTopSongs : _songs;
-    final random = Random();
-    final song = source[random.nextInt(source.length)];
-    _onSongSelected(
-      song['cleanTrackName']?.toString() ?? song['trackName']?.toString() ?? '',
-      song['artistName']?.toString() ?? '',
-      song['artworkUrl100']?.toString() ?? '',
-    );
+  void _openArtistSongs() {
+    if (_artist == null) return;
+    setState(() => _activeFilter = 'Artistas');
+  }
+
+  void _openArtistAlbums() {
+    if (_albums.isEmpty) return;
+    setState(() => _activeFilter = 'Álbuns');
   }
 
   Future<void> _openAlbum(Map<String, dynamic> album) async {
@@ -810,19 +1099,19 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             children: [
               Expanded(
                 child: _buildArtistButton(
-                  icon: Icons.play_circle_fill_rounded,
-                  text: 'Top músicas',
+                  icon: Icons.queue_music_rounded,
+                  text: 'Ver músicas',
                   filled: true,
-                  onTap: _playTopSongs,
+                  onTap: _openArtistSongs,
                 ),
               ),
               const SizedBox(width: 10),
               Expanded(
                 child: _buildArtistButton(
-                  icon: Icons.shuffle_rounded,
-                  text: 'Mix do artista',
+                  icon: Icons.album_rounded,
+                  text: 'Álbuns',
                   filled: false,
-                  onTap: _playArtistMix,
+                  onTap: _openArtistAlbums,
                 ),
               ),
             ],
@@ -985,31 +1274,124 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
               ),
               const SizedBox(height: 6),
               Text(
-                'Artista encontrado',
+                _artistTopSongs.isEmpty
+                    ? 'Artista encontrado'
+                    : '${_artistTopSongs.length} músicas encontradas',
                 style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: _playTopSongs,
-                  icon: const Icon(Icons.play_circle_fill_rounded),
-                  label: const Text('Abrir principais músicas'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blueAccent,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
               ),
             ],
           ),
         ),
+        if (_artistTopSongs.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          const Text(
+            'DESTAQUES DO ARTISTA',
+            style: TextStyle(
+              color: Colors.blueAccent,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: 12),
+          ..._artistTopSongs.asMap().entries.map(
+            (entry) => _buildArtistSongTile(entry.key + 1, entry.value),
+          ),
+        ] else ...[
+          const SizedBox(height: 18),
+          Text(
+            'Pesquise pelo nome de uma música desse artista para abrir a cifra.',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.grey.shade500,
+              fontSize: 14,
+              height: 1.35,
+            ),
+          ),
+        ],
       ],
+    );
+  }
+
+  Widget _buildArtistSongTile(int position, dynamic song) {
+    final track =
+        song['cleanTrackName']?.toString() ??
+        song['trackName']?.toString() ??
+        '';
+    final searchTrack = song['trackName']?.toString() ?? '';
+    final artist = song['artistName']?.toString() ?? '';
+    final image = song['artworkUrl100']?.toString() ?? '';
+    final isLoading = _loadingTrack == searchTrack;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: isLoading
+          ? null
+          : () => _onSongSelected(searchTrack, artist, image),
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF16161E),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 28,
+              child: Text(
+                '$position',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.grey.shade600,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            _buildArtwork(image, 52),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    track,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            isLoading
+                ? const SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: LogoLoader(size: 28),
+                  )
+                : const Icon(
+                    Icons.chevron_right_rounded,
+                    color: Colors.blueAccent,
+                    size: 24,
+                  ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1162,47 +1544,350 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Widget _buildEmptyState() {
-    return Center(
-      child: SingleChildScrollView(
-        physics: const BouncingScrollPhysics(),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+    final trending = _discoverySongs.take(5).toList();
+    final highlights = _discoverySongs.skip(2).take(5).toList();
+
+    return RefreshIndicator(
+      color: Colors.blueAccent,
+      backgroundColor: const Color(0xFF17171F),
+      onRefresh: _loadDiscoverySongs,
+      child: ListView(
+        padding: const EdgeInsets.fromLTRB(20, 10, 20, 28),
+        physics: const AlwaysScrollableScrollPhysics(
+          parent: BouncingScrollPhysics(),
+        ),
+        children: [
+          _buildDiscoveryHeader(),
+          const SizedBox(height: 24),
+          _buildSectionTitle(
+            'Gospel em destaque hoje',
+            actionIcon: Icons.trending_up_rounded,
+          ),
+          const SizedBox(height: 10),
+          ...trending.asMap().entries.map(
+            (entry) => _buildTrendingTile(entry.key + 1, entry.value),
+          ),
+          const SizedBox(height: 24),
+          _buildSectionTitle(
+            'Sugestões para culto',
+            actionIcon: Icons.auto_awesome_rounded,
+          ),
+          const SizedBox(height: 12),
+          _buildHighlightRail(highlights),
+          const SizedBox(height: 26),
+          _buildRecentSongsPreview(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDiscoveryHeader() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: const Color(0xFF15151E),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: Colors.blueAccent.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: const Icon(
+              Icons.graphic_eq_rounded,
+              color: Colors.blueAccent,
+              size: 30,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Pronto para tocar?',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  'Explore cifras em alta ou pesquise seu repertório.',
+                  style: TextStyle(
+                    color: Colors.grey.shade500,
+                    fontSize: 13,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionTitle(String title, {required IconData actionIcon}) {
+    return Row(
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 21,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const Spacer(),
+        Container(
+          width: 34,
+          height: 34,
+          decoration: BoxDecoration(
+            color: const Color(0xFF17171F),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withOpacity(0.06)),
+          ),
+          child: Icon(actionIcon, color: Colors.blueAccent, size: 18),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTrendingTile(int position, Map<String, dynamic> song) {
+    final track = _displayTrack(song);
+    final searchTrack = _searchTrack(song);
+    final artist = _displayArtist(song);
+    final image = song['artworkUrl100']?.toString() ?? '';
+    final isLoading = _loadingTrack == searchTrack;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: isLoading ? null : () => _openDiscoverySong(song),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 7),
+        child: Row(
           children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(
-                color: Color(0xFF1A1A24),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.graphic_eq_rounded,
-                size: 48,
-                color: Colors.blueAccent,
+            SizedBox(
+              width: 26,
+              child: position > 0
+                  ? Text(
+                      '$position',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    )
+                  : Icon(
+                      Icons.history_rounded,
+                      color: Colors.grey.shade700,
+                      size: 18,
+                    ),
+            ),
+            const SizedBox(width: 10),
+            _buildArtwork(image, 50),
+            const SizedBox(width: 13),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    track,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: 24),
-            const Text(
-              'Pronto para tocar?',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+            const SizedBox(width: 8),
+            isLoading
+                ? const SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: LogoLoader(size: 28),
+                  )
+                : Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: Colors.blueAccent.withOpacity(0.14),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.chevron_right_rounded,
+                      color: Colors.blueAccent,
+                      size: 23,
+                    ),
+                  ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHighlightRail(List<Map<String, dynamic>> songs) {
+    return SizedBox(
+      height: 178,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        physics: const BouncingScrollPhysics(),
+        itemCount: songs.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        itemBuilder: (context, index) => _buildHighlightCard(songs[index]),
+      ),
+    );
+  }
+
+  Widget _buildHighlightCard(Map<String, dynamic> song) {
+    final track = _displayTrack(song);
+    final searchTrack = _searchTrack(song);
+    final artist = _displayArtist(song);
+    final image = song['artworkUrl100']?.toString() ?? '';
+    final isLoading = _loadingTrack == searchTrack;
+
+    return GestureDetector(
+      onTap: isLoading ? null : () => _openDiscoverySong(song),
+      child: Container(
+        width: 150,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF17171F),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white.withOpacity(0.05)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                _buildArtwork(image, 86),
+                if (isLoading)
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.45),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Center(child: LogoLoader(size: 34)),
+                    ),
+                  ),
+              ],
             ),
-            const SizedBox(height: 8),
+            const Spacer(),
             Text(
-              'Pesquise uma música ou artista\npara encontrar a cifra.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: Colors.grey.shade500,
+              track,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
                 fontSize: 14,
-                height: 1.5,
+                height: 1.15,
+                fontWeight: FontWeight.w800,
               ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              artist,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
             ),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildRecentSongsPreview() {
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user == null) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('played_history')
+          .orderBy('played_at', descending: true)
+          .limit(4)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? [];
+        if (docs.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSectionTitle(
+              'Tocadas recentemente',
+              actionIcon: Icons.history_rounded,
+            ),
+            const SizedBox(height: 10),
+            ...docs.map((doc) {
+              final data = doc.data();
+              final song = {
+                'cacheId': doc.id,
+                'trackName': data['title']?.toString() ?? '',
+                'cleanTrackName': data['title']?.toString() ?? '',
+                'artistName': data['artist']?.toString() ?? '',
+                'originalKey': data['originalKey']?.toString() ?? 'C',
+                'shapeKey': data['shapeKey']?.toString(),
+                'capo': data['capo']?.toString(),
+                'referenceUrl': data['referenceUrl']?.toString(),
+                'rehearsalNotes': data['rehearsalNotes']?.toString(),
+                'bpm': data['bpm']?.toString(),
+                'content': data['content']?.toString() ?? '',
+                'url': data['url']?.toString() ?? '',
+                'isCachedCifra': true,
+              };
+              return _buildTrendingTile(0, song);
+            }),
+          ],
+        );
+      },
+    );
+  }
+
+  String _displayTrack(Map<String, dynamic> song) {
+    return song['cleanTrackName']?.toString().trim().isNotEmpty == true
+        ? song['cleanTrackName'].toString()
+        : song['trackName']?.toString() ?? 'Música';
+  }
+
+  String _searchTrack(Map<String, dynamic> song) {
+    return song['trackName']?.toString().trim().isNotEmpty == true
+        ? song['trackName'].toString()
+        : _displayTrack(song);
+  }
+
+  String _displayArtist(Map<String, dynamic> song) {
+    return song['artistName']?.toString().trim().isNotEmpty == true
+        ? song['artistName'].toString()
+        : 'Artista';
   }
 
   Future<void> _saveToLibraryInvisible(SongEntity song) async {

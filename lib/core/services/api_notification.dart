@@ -4,7 +4,6 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_app_check/firebase_app_check.dart';
 
 class ApiNotification {
   static const String _url = 'https://cifraband-api.onrender.com/notificar';
@@ -186,13 +185,10 @@ class ApiNotification {
 
     try {
       final idToken = await user.getIdToken();
-      final appCheckToken = await _safeAppCheckToken();
       final response = await http.post(
         Uri.parse(_url),
         headers: {
           'Authorization': 'Bearer $idToken',
-          if (appCheckToken != null && appCheckToken.isNotEmpty)
-            'X-Firebase-AppCheck': appCheckToken,
           'Content-Type': 'application/json',
         },
         body: jsonEncode({
@@ -216,15 +212,6 @@ class ApiNotification {
       }
     } catch (e) {
       debugPrint('Erro ao enviar push pro Render: $e');
-    }
-  }
-
-  static Future<String?> _safeAppCheckToken() async {
-    try {
-      return FirebaseAppCheck.instance.getToken(false);
-    } catch (e) {
-      debugPrint('App Check indisponível para push: $e');
-      return null;
     }
   }
 }

@@ -47,4 +47,5 @@ flutter {
 dependencies {
     // ⚠️ A CORREÇÃO: Atualizado para a versão 2.1.4 exigida pelas notificações
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    implementation("androidx.core:core-ktx:1.17.0")
 }
