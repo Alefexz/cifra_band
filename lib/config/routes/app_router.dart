@@ -13,6 +13,7 @@ import 'package:cifra_band/features/home/presentation/screens/add_friend_screen.
 import 'package:cifra_band/features/home/presentation/screens/cult_setlist_player_screen.dart';
 import 'package:cifra_band/features/home/presentation/screens/availability_screen.dart';
 import 'package:cifra_band/features/home/presentation/screens/feedback_screen.dart';
+import 'package:cifra_band/features/home/presentation/screens/support_center_screen.dart';
 
 import 'package:cifra_band/features/setlist/domain/entities/setlist_entity.dart';
 import 'package:cifra_band/features/setlist/presentation/screens/setlist_detail_screen.dart';
@@ -130,6 +131,11 @@ final appRouter = GoRouter(
       path: '/feedback',
       pageBuilder: (context, state) =>
           _buildFadeTransition(context, state, const FeedbackScreen()),
+    ),
+    GoRoute(
+      path: '/support-center',
+      pageBuilder: (context, state) =>
+          _buildFadeTransition(context, state, const SupportCenterScreen()),
     ),
     GoRoute(
       path: '/add-song',

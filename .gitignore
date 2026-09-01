@@ -71,6 +71,7 @@ functions/node_modules/
 functions/.env
 functions/.env.*
 !functions/.env.example
+/support-panel/config.js
 
 # Firebase local/runtime artifacts
 .firebase/

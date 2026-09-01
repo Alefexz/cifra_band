@@ -305,6 +305,7 @@ class ProfileScreen extends ConsumerWidget {
 
           final name = userData['name'] ?? 'Músico';
           final email = userAuth.email ?? 'Sem e-mail cadastrado';
+          final isAdmin = userData['is_admin'] == true;
 
           final List<dynamic> rawRoles = userData['roles'] ?? [];
           final List<String> stringRoles = rawRoles
@@ -541,6 +542,30 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                   ),
                 ),
+
+                if (isAdmin) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () => context.push('/support-center'),
+                      icon: const Icon(Icons.forum_rounded),
+                      label: const Text(
+                        'Central de Suporte',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF12351F),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: 40),
 
