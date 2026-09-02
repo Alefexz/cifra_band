@@ -13,7 +13,39 @@ class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   Future<void> _resetPassword(BuildContext context, String email) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF16161E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text(
+          'Redefinir senha',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
+        ),
+        content: Text(
+          'Vamos enviar um link do Cifra Band para $email. Se cair no spam, marque como confiavel uma vez.',
+          style: TextStyle(color: Colors.grey.shade400, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blueAccent,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Enviar link'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
     try {
+      await FirebaseAuth.instance.setLanguageCode('pt-BR');
       await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -306,6 +338,7 @@ class ProfileScreen extends ConsumerWidget {
           final name = userData['name'] ?? 'Músico';
           final email = userAuth.email ?? 'Sem e-mail cadastrado';
           final isAdmin = userData['is_admin'] == true;
+          final churchId = userData['church_id']?.toString() ?? '';
 
           final List<dynamic> rawRoles = userData['roles'] ?? [];
           final List<String> stringRoles = rawRoles
@@ -326,15 +359,22 @@ class ProfileScreen extends ConsumerWidget {
                 const SizedBox(height: 20),
 
                 Container(
-                  width: 100,
-                  height: 100,
+                  width: 108,
+                  height: 108,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF16161E),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: Colors.blueAccent.withValues(alpha: 0.5),
-                      width: 3,
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF2563EB), Color(0xFF22C55E)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
                     ),
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.blueAccent.withValues(alpha: 0.22),
+                        blurRadius: 24,
+                        offset: const Offset(0, 12),
+                      ),
+                    ],
                   ),
                   child: Center(
                     child: Text(
@@ -342,7 +382,7 @@ class ProfileScreen extends ConsumerWidget {
                       style: const TextStyle(
                         fontSize: 40,
                         fontWeight: FontWeight.bold,
-                        color: Colors.blueAccent,
+                        color: Colors.white,
                       ),
                     ),
                   ),
@@ -399,6 +439,27 @@ class ProfileScreen extends ConsumerWidget {
                 Text(
                   email,
                   style: TextStyle(color: Colors.grey.shade500, fontSize: 14),
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    _ProfileBadge(
+                      icon: isAdmin
+                          ? Icons.admin_panel_settings_rounded
+                          : Icons.music_note_rounded,
+                      label: isAdmin ? 'Administrador' : 'Musico',
+                      color: isAdmin ? Colors.greenAccent : Colors.blueAccent,
+                    ),
+                    if (churchId.isNotEmpty)
+                      const _ProfileBadge(
+                        icon: Icons.church_rounded,
+                        label: 'Ministerio conectado',
+                        color: Colors.orangeAccent,
+                      ),
+                  ],
                 ),
 
                 const SizedBox(height: 32),
@@ -510,6 +571,29 @@ class ProfileScreen extends ConsumerWidget {
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF1A1A24),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 12),
+
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => context.push('/official-library'),
+                    icon: const Icon(Icons.library_music_rounded),
+                    label: const Text(
+                      'Biblioteca Oficial',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF16251C),
                       foregroundColor: Colors.white,
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -647,6 +731,45 @@ class ProfileScreen extends ConsumerWidget {
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _ProfileBadge extends StatelessWidget {
+  const _ProfileBadge({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.24)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: color, size: 16),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              color: color,
+              fontWeight: FontWeight.w900,
+              fontSize: 12,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -124,6 +124,11 @@ class OfflineSetlistService {
     }
   }
 
+  static Future<bool> isCultSetlistSaved(String scheduleId) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.containsKey(_setlistKey(scheduleId));
+  }
+
   static Future<void> deleteCultSetlist(String scheduleId) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_setlistKey(scheduleId));

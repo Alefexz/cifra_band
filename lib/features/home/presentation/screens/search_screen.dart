@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
+import 'package:cifra_band/core/services/official_library_service.dart';
 import 'package:cifra_band/features/songs/data/datasources/song_scraper_datasource.dart';
 import 'package:cifra_band/features/songs/domain/entities/song_entity.dart';
 import 'package:cifra_band/features/songs/presentation/providers/song_providers.dart';
@@ -577,6 +578,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       final SongEntity songEntity = await repository.extractSongFromUrl(
         uri.toString(),
       );
+      final officialSong = await OfficialLibraryService.findOfficialSong(
+        songEntity.title,
+        songEntity.artist,
+      ).catchError((_) => null);
 
       clearColdStartWarning();
 
@@ -584,7 +589,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
       if (!mounted) return;
       setState(() => _loadingTrack = null);
-      context.push('/cifra', extra: songEntity);
+      context.push('/cifra', extra: officialSong?.toSongModel() ?? songEntity);
     } on TimeoutException {
       clearColdStartWarning();
       if (!mounted) return;

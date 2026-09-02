@@ -24,6 +24,8 @@ import 'package:cifra_band/features/setlist/presentation/screens/offline_setlist
 
 import 'package:cifra_band/features/songs/presentation/screens/add_song_screen.dart';
 import 'package:cifra_band/features/songs/presentation/screens/cifra_screen.dart';
+import 'package:cifra_band/features/songs/presentation/screens/official_library_screen.dart';
+import 'package:cifra_band/features/songs/presentation/screens/official_song_editor_screen.dart';
 import 'package:cifra_band/features/songs/data/models/song_model.dart';
 import 'package:cifra_band/features/songs/domain/entities/song_entity.dart';
 
@@ -130,8 +132,18 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/feedback',
-      pageBuilder: (context, state) =>
-          _buildFadeTransition(context, state, const FeedbackScreen()),
+      pageBuilder: (context, state) {
+        final args = state.extra as Map<String, dynamic>? ?? {};
+        return _buildFadeTransition(
+          context,
+          state,
+          FeedbackScreen(
+            initialType: args['type']?.toString(),
+            initialScreen: args['screen']?.toString(),
+            initialMessage: args['message']?.toString(),
+          ),
+        );
+      },
     ),
     GoRoute(
       path: '/my-support',
@@ -142,6 +154,19 @@ final appRouter = GoRouter(
       path: '/support-center',
       pageBuilder: (context, state) =>
           _buildFadeTransition(context, state, const SupportCenterScreen()),
+    ),
+    GoRoute(
+      path: '/official-library',
+      pageBuilder: (context, state) =>
+          _buildFadeTransition(context, state, const OfficialLibraryScreen()),
+    ),
+    GoRoute(
+      path: '/official-song-editor',
+      pageBuilder: (context, state) => _buildFadeTransition(
+        context,
+        state,
+        OfficialSongEditorScreen(initialSong: state.extra),
+      ),
     ),
     GoRoute(
       path: '/add-song',

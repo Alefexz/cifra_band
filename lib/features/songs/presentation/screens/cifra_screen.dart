@@ -7,7 +7,10 @@ import 'package:go_router/go_router.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:cifra_band/core/services/chord_study_service.dart';
+import 'package:cifra_band/core/services/official_library_service.dart';
 import 'package:cifra_band/core/services/played_history_service.dart';
+import 'package:cifra_band/core/services/song_annotation_service.dart';
 import '../../data/models/song_model.dart';
 import '../../domain/transposer_engine.dart';
 
@@ -331,6 +334,272 @@ class _CifraScreenState extends State<CifraScreen> {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
+  Future<void> _saveOfficialVersion() async {
+    try {
+      await OfficialLibraryService.saveFromSong(widget.song);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cifra salva como versão oficial da igreja.'),
+          backgroundColor: Color(0xFF22C55E),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Não consegui salvar na biblioteca: $error'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  void _reportWrongChord() {
+    final message = StringBuffer()
+      ..writeln('Problema nesta cifra:')
+      ..writeln('${widget.song.title} - ${widget.song.artist}')
+      ..writeln('Tom atual: $_currentPitch')
+      ..writeln('Tom original: ${widget.song.originalKey}')
+      ..writeln(
+        'Fonte: ${widget.song.url.isEmpty ? 'sem URL' : widget.song.url}',
+      )
+      ..writeln()
+      ..write('Descreva onde o acorde/letra está errado: ');
+
+    context.push(
+      '/feedback',
+      extra: {
+        'type': 'wrong_chord',
+        'screen': 'Cifra',
+        'message': message.toString(),
+      },
+    );
+  }
+
+  Future<void> _showAnnotationSheet() async {
+    final controller = TextEditingController(
+      text: await SongAnnotationService.load(
+        widget.song.title,
+        widget.song.artist,
+      ),
+    );
+    if (!mounted) return;
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: _modalSurfaceColor,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(24),
+              ),
+            ),
+            child: SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Anotação pessoal',
+                    style: TextStyle(
+                      color: _primaryText,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    minLines: 4,
+                    maxLines: 8,
+                    style: TextStyle(color: _primaryText, height: 1.35),
+                    decoration: InputDecoration(
+                      hintText: 'Ex: entrar suave no refrão, pad em D...',
+                      hintStyle: TextStyle(color: _secondaryText),
+                      filled: true,
+                      fillColor: _controlColor,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      await SongAnnotationService.save(
+                        widget.song.title,
+                        widget.song.artist,
+                        controller.text,
+                      );
+                      if (context.mounted) Navigator.pop(context);
+                    },
+                    icon: const Icon(Icons.save_rounded),
+                    label: const Text('Salvar anotação'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueAccent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    controller.dispose();
+  }
+
+  void _showChordStudySheet() {
+    final chords = ChordStudyService.uniqueChords(_displayedContent);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          height: MediaQuery.of(context).size.height * 0.78,
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 22),
+          decoration: BoxDecoration(
+            color: _modalSurfaceColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          child: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Acordes e graus',
+                        style: TextStyle(
+                          color: _primaryText,
+                          fontSize: 21,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: Icon(Icons.close_rounded, color: _secondaryText),
+                    ),
+                  ],
+                ),
+                Text(
+                  'Tom de referência: $_currentPitch',
+                  style: TextStyle(
+                    color: _secondaryText,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (chords.isEmpty)
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        'Nenhum acorde reconhecido nesta cifra.',
+                        style: TextStyle(color: _secondaryText),
+                      ),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: ListView.separated(
+                      physics: const BouncingScrollPhysics(),
+                      itemCount: chords.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final chord = chords[index];
+                        final simple = ChordStudyService.simplifiedName(chord);
+                        final notes = ChordStudyService.keyboardNotes(simple);
+                        final degree = ChordStudyService.degreeForChord(
+                          simple,
+                          _currentPitch,
+                        );
+                        final guitar =
+                            ChordStudyService.guitarShapes[simple] ??
+                            ChordStudyService
+                                .guitarShapes[TransposerEngine.normalizeKey(
+                              simple,
+                            )];
+
+                        return Container(
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: _controlColor,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: _dividerColor),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    chord,
+                                    style: const TextStyle(
+                                      color: Colors.blueAccent,
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  _StudyPill('Grau $degree'),
+                                  if (simple != chord) ...[
+                                    const SizedBox(width: 8),
+                                    _StudyPill('Simplifica: $simple'),
+                                  ],
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Text(
+                                notes.isEmpty
+                                    ? 'Teclado: notas não identificadas'
+                                    : 'Teclado: ${notes.join(' - ')}',
+                                style: TextStyle(
+                                  color: _primaryText,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                guitar == null
+                                    ? 'Violão: formato ainda não cadastrado'
+                                    : 'Violão: E A D G B e = ${guitar.join(' ')}',
+                                style: TextStyle(
+                                  color: _secondaryText,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // ==========================================================
   // MODAIS (Configurações e Tom)
   // ==========================================================
@@ -453,6 +722,74 @@ class _CifraScreenState extends State<CifraScreen> {
                     onChanged: (val) {
                       setState(() => _showTabs = val);
                       setModalState(() {});
+                    },
+                  ),
+                  Divider(color: _dividerColor, height: 16),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(
+                      Icons.library_add_check_rounded,
+                      color: Colors.greenAccent,
+                    ),
+                    title: Text(
+                      'Salvar na Biblioteca Oficial',
+                      style: TextStyle(color: _primaryText, fontSize: 16),
+                    ),
+                    subtitle: Text(
+                      'Administra a versão que a igreja vai usar.',
+                      style: TextStyle(color: _secondaryText, fontSize: 12),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _saveOfficialVersion();
+                    },
+                  ),
+                  Divider(color: _dividerColor, height: 16),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(
+                      Icons.school_rounded,
+                      color: Colors.blueAccent,
+                    ),
+                    title: Text(
+                      'Acordes, teclado e graus',
+                      style: TextStyle(color: _primaryText, fontSize: 16),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showChordStudySheet();
+                    },
+                  ),
+                  Divider(color: _dividerColor, height: 16),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(
+                      Icons.edit_note_rounded,
+                      color: Colors.orangeAccent,
+                    ),
+                    title: Text(
+                      'Anotação pessoal',
+                      style: TextStyle(color: _primaryText, fontSize: 16),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showAnnotationSheet();
+                    },
+                  ),
+                  Divider(color: _dividerColor, height: 16),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(
+                      Icons.report_problem_rounded,
+                      color: Colors.redAccent,
+                    ),
+                    title: Text(
+                      'Reportar problema nesta cifra',
+                      style: TextStyle(color: _primaryText, fontSize: 16),
+                    ),
+                    onTap: () {
+                      Navigator.pop(context);
+                      _reportWrongChord();
                     },
                   ),
                   const SizedBox(height: 16),
@@ -904,6 +1241,42 @@ class _CifraScreenState extends State<CifraScreen> {
         Row(
           children: [
             InkWell(
+              onTap: _saveOfficialVersion,
+              child: Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: Colors.greenAccent.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.library_add_check_rounded,
+                  color: Colors.greenAccent,
+                  size: 21,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            InkWell(
+              onTap: _reportWrongChord,
+              child: Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: Colors.orangeAccent.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.report_problem_outlined,
+                  color: Colors.orangeAccent,
+                  size: 21,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            InkWell(
               onTap: _toggleFavorite,
               child: Container(
                 width: 48,
@@ -1062,6 +1435,18 @@ class _CifraScreenState extends State<CifraScreen> {
                           ? Icons.dark_mode_rounded
                           : Icons.light_mode_rounded,
                       onTap: _toggleStageMode,
+                    ),
+                    _buildCifraInfoChip(
+                      label: 'Acordes/Graus',
+                      color: Colors.orangeAccent,
+                      icon: Icons.school_rounded,
+                      onTap: _showChordStudySheet,
+                    ),
+                    _buildCifraInfoChip(
+                      label: 'Anotação',
+                      color: Colors.purpleAccent,
+                      icon: Icons.edit_note_rounded,
+                      onTap: _showAnnotationSheet,
                     ),
                   ],
                 ),
@@ -1249,6 +1634,35 @@ class _CifraScreenState extends State<CifraScreen> {
       scrollDirection: Axis.horizontal,
       physics: const BouncingScrollPhysics(),
       child: child,
+    );
+  }
+}
+
+class _StudyPill extends StatelessWidget {
+  const _StudyPill(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Flexible(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.blueAccent.withOpacity(0.12),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            color: Colors.blueAccent,
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+      ),
     );
   }
 }

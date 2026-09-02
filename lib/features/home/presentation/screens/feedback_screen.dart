@@ -3,7 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 class FeedbackScreen extends StatefulWidget {
-  const FeedbackScreen({super.key});
+  const FeedbackScreen({
+    super.key,
+    this.initialType,
+    this.initialScreen,
+    this.initialMessage,
+  });
+
+  final String? initialType;
+  final String? initialScreen;
+  final String? initialMessage;
 
   @override
   State<FeedbackScreen> createState() => _FeedbackScreenState();
@@ -64,6 +73,20 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
     'Atualização',
     'Outro',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    final type = widget.initialType;
+    final screen = widget.initialScreen;
+    if (type != null && _types.any((item) => item.value == type)) {
+      _selectedType = type;
+    }
+    if (screen != null && _screens.contains(screen)) {
+      _selectedScreen = screen;
+    }
+    _messageController.text = widget.initialMessage ?? '';
+  }
 
   @override
   void dispose() {

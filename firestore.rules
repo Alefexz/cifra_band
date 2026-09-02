@@ -163,6 +163,10 @@ service cloud.firestore {
         && scheduleMemberFieldsOnly();
     }
 
+    function scheduleChurch(scheduleId) {
+      return get(/databases/$(database)/documents/schedules/$(scheduleId)).data.church_id;
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && canReadUser(userId);
       allow create: if validNewUser(userId);
@@ -205,6 +209,16 @@ service cloud.firestore {
         ]);
       allow update: if isAdminForChurch(ministryId);
       allow delete: if false;
+
+      match /official_songs/{songId} {
+        allow read: if sameChurch(ministryId);
+        allow create, update, delete: if isAdminForChurch(ministryId);
+
+        match /versions/{versionId} {
+          allow read: if sameChurch(ministryId);
+          allow create, update, delete: if isAdminForChurch(ministryId);
+        }
+      }
     }
 
     match /ministry_invites/{inviteCode} {
@@ -229,6 +243,13 @@ service cloud.firestore {
       allow create: if isAdminForChurch(request.resource.data.church_id);
       allow update: if adminScheduleUpdate() || memberScheduleUpdate();
       allow delete: if isAdminForChurch(resource.data.church_id);
+
+      match /rehearsal_status/{statusId} {
+        allow read: if sameChurch(scheduleChurch(scheduleId));
+        allow create, update: if sameChurch(scheduleChurch(scheduleId))
+          && request.resource.data.uid == request.auth.uid;
+        allow delete: if isAdminForChurch(scheduleChurch(scheduleId));
+      }
     }
 
     match /setlists/{setlistId} {

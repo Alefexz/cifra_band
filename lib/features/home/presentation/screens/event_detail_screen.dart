@@ -1,6 +1,9 @@
 // lib/features/home/presentation/screens/event_detail_screen.dart
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -9,6 +12,10 @@ import 'package:cifra_band/features/songs/data/models/song_model.dart'; // ⚠�
 import 'package:cifra_band/core/services/api_notification.dart';
 import 'package:cifra_band/core/services/availability_service.dart';
 import 'package:cifra_band/core/services/offline_setlist_service.dart';
+import 'package:cifra_band/core/services/rehearsal_service.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:share_plus/share_plus.dart';
 
 class EventDetailScreen extends StatefulWidget {
   final bool isAdmin;
@@ -320,7 +327,6 @@ class _EventDetailScreenState extends State<EventDetailScreen>
       if (!snapshot.exists) return;
 
       List<dynamic> suggested = snapshot.data()?['suggested_songs'] ?? [];
-      List<dynamic> approved = snapshot.data()?['approved_songs'] ?? [];
 
       int index = suggested.indexWhere(
         (s) => s['title'] == song['title'] && s['artist'] == song['artist'],
@@ -358,35 +364,9 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     List<dynamic> team,
     List<dynamic> songs,
   ) async {
-    final buffer = StringBuffer();
-    buffer.writeln('🎸 *ESCALA: $title*');
-    buffer.writeln('📅 *Data:* $dateStr\n');
-
-    buffer.writeln('👥 *EQUIPE ESCALADA:*');
-    if (team.isEmpty) {
-      buffer.writeln('Nenhum membro escalado ainda.');
-    } else {
-      for (var member in team) {
-        buffer.writeln('• ${member['name']} - ${member['role']}');
-      }
-    }
-    buffer.writeln('');
-
-    buffer.writeln('🎵 *REPERTÓRIO OFICIAL:*');
-    if (songs.isEmpty) {
-      buffer.writeln('Nenhum louvor aprovado ainda.');
-    } else {
-      for (int i = 0; i < songs.length; i++) {
-        final s = songs[i];
-        buffer.writeln(
-          '${i + 1}. ${s['title']} - ${s['artist']} (Tom: ${s['key']})',
-        );
-      }
-    }
-
-    buffer.writeln('\n📱 _Gerado pelo app Cifra Band_');
-
-    final text = Uri.encodeComponent(buffer.toString());
+    final text = Uri.encodeComponent(
+      _buildSetlistShareText(title, dateStr, team, songs),
+    );
     final url = Uri.parse('https://wa.me/?text=$text');
 
     if (await canLaunchUrl(url)) {
@@ -400,6 +380,208 @@ class _EventDetailScreenState extends State<EventDetailScreen>
           ),
         );
     }
+  }
+
+  String _buildSetlistShareText(
+    String title,
+    String dateStr,
+    List<dynamic> team,
+    List<dynamic> songs,
+  ) {
+    final buffer = StringBuffer();
+    buffer.writeln('*ESCALA: $title*');
+    buffer.writeln('*Data:* $dateStr\n');
+
+    buffer.writeln('*EQUIPE ESCALADA:*');
+    if (team.isEmpty) {
+      buffer.writeln('Nenhum membro escalado ainda.');
+    } else {
+      for (var member in team) {
+        buffer.writeln('- ${member['name']} - ${member['role']}');
+      }
+    }
+    buffer.writeln('');
+
+    buffer.writeln('*REPERTORIO OFICIAL:*');
+    if (songs.isEmpty) {
+      buffer.writeln('Nenhum louvor aprovado ainda.');
+    } else {
+      for (int i = 0; i < songs.length; i++) {
+        final s = songs[i];
+        final bpm = s['bpm']?.toString().trim() ?? '';
+        final note = s['rehearsalNotes']?.toString().trim() ?? '';
+        buffer.writeln(
+          '${i + 1}. ${s['title']} - ${s['artist']} (Tom: ${s['key']})${bpm.isEmpty ? '' : ' - $bpm BPM'}',
+        );
+        if (note.isNotEmpty) buffer.writeln('   Obs: $note');
+      }
+    }
+
+    buffer.writeln('\nGerado pelo app Cifra Band');
+    return buffer.toString();
+  }
+
+  Future<void> _copySetlist(
+    String title,
+    String dateStr,
+    List<dynamic> team,
+    List<dynamic> songs,
+  ) async {
+    await Clipboard.setData(
+      ClipboardData(text: _buildSetlistShareText(title, dateStr, team, songs)),
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Setlist copiada para colar no WhatsApp ou PDF.'),
+        backgroundColor: Colors.blueAccent,
+      ),
+    );
+  }
+
+  Future<void> _exportSetlistPdf(
+    String title,
+    String dateStr,
+    List<dynamic> team,
+    List<dynamic> songs,
+  ) async {
+    final pdf = pw.Document();
+    final text = _buildSetlistShareText(
+      title,
+      dateStr,
+      team,
+      songs,
+    ).replaceAll('*', '');
+
+    pdf.addPage(
+      pw.MultiPage(
+        build: (context) => [
+          pw.Text(
+            title,
+            style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 8),
+          pw.Text(dateStr),
+          pw.SizedBox(height: 18),
+          pw.Text(text, style: const pw.TextStyle(fontSize: 12)),
+        ],
+      ),
+    );
+
+    final dir = await getTemporaryDirectory();
+    final safeTitle = title
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-|-$'), '');
+    final file = File(
+      '${dir.path}/setlist-${safeTitle.isEmpty ? 'culto' : safeTitle}.pdf',
+    );
+    await file.writeAsBytes(await pdf.save(), flush: true);
+    await SharePlus.instance.share(
+      ShareParams(
+        files: [XFile(file.path)],
+        text: 'Setlist $title - Cifra Band',
+      ),
+    );
+  }
+
+  Future<void> _toggleRehearsed(
+    Map<String, dynamic> songMap,
+    bool currentValue,
+  ) async {
+    final title = songMap['title']?.toString() ?? '';
+    final artist = songMap['artist']?.toString() ?? '';
+    final key = RehearsalService.songKey(title, artist);
+    await RehearsalService.saveMyStatus(
+      scheduleId: widget.scheduleId,
+      songKey: key,
+      title: title,
+      artist: artist,
+      rehearsed: !currentValue,
+    );
+  }
+
+  Future<void> _showMySongObservation(Map<String, dynamic> songMap) async {
+    final title = songMap['title']?.toString() ?? '';
+    final artist = songMap['artist']?.toString() ?? '';
+    final key = RehearsalService.songKey(title, artist);
+    final controller = TextEditingController();
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(22),
+            decoration: const BoxDecoration(
+              color: Color(0xFF16161E),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    minLines: 4,
+                    maxLines: 7,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText:
+                          'Ex: preciso revisar ponte, segunda voz ou entrada.',
+                      hintStyle: TextStyle(color: Colors.grey.shade600),
+                      filled: true,
+                      fillColor: const Color(0xFF0D0D12),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  ElevatedButton.icon(
+                    onPressed: () async {
+                      await RehearsalService.saveMyStatus(
+                        scheduleId: widget.scheduleId,
+                        songKey: key,
+                        title: title,
+                        artist: artist,
+                        rehearsed: true,
+                        note: controller.text,
+                      );
+                      if (context.mounted) Navigator.pop(context);
+                    },
+                    icon: const Icon(Icons.save_rounded),
+                    label: const Text('Salvar observação'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueAccent,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+    controller.dispose();
   }
 
   Future<void> _openReferenceUrl(String rawUrl) async {
@@ -837,17 +1019,61 @@ class _EventDetailScreenState extends State<EventDetailScreen>
               ],
             ),
             actions: [
-              IconButton(
+              PopupMenuButton<String>(
                 icon: const Icon(
-                  Icons.share_rounded,
+                  Icons.ios_share_rounded,
                   color: Colors.greenAccent,
                 ),
-                onPressed: () => _shareToWhatsApp(
-                  title,
-                  formattedDate,
-                  teamAssignments,
-                  approvedSongs,
-                ),
+                color: const Color(0xFF282832),
+                onSelected: (value) {
+                  if (value == 'whatsapp') {
+                    _shareToWhatsApp(
+                      title,
+                      formattedDate,
+                      teamAssignments,
+                      approvedSongs,
+                    );
+                  }
+                  if (value == 'copy') {
+                    _copySetlist(
+                      title,
+                      formattedDate,
+                      teamAssignments,
+                      approvedSongs,
+                    );
+                  }
+                  if (value == 'pdf') {
+                    _exportSetlistPdf(
+                      title,
+                      formattedDate,
+                      teamAssignments,
+                      approvedSongs,
+                    );
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(
+                    value: 'whatsapp',
+                    child: Text(
+                      'Enviar no WhatsApp',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'copy',
+                    child: Text(
+                      'Copiar texto',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'pdf',
+                    child: Text(
+                      'Gerar PDF',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
               ),
               if (widget.isAdmin)
                 PopupMenuButton<String>(
@@ -1004,6 +1230,49 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                     'Baixar Setlist Offline',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
+                ),
+                const SizedBox(height: 10),
+                FutureBuilder<bool>(
+                  future: OfflineSetlistService.isCultSetlistSaved(
+                    widget.scheduleId,
+                  ),
+                  builder: (context, snapshot) {
+                    if (snapshot.data != true) return const SizedBox.shrink();
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 9,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Colors.green.withValues(alpha: 0.35),
+                        ),
+                      ),
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.offline_pin_rounded,
+                            color: Colors.greenAccent,
+                            size: 18,
+                          ),
+                          SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              'Setlist offline baixada neste aparelho',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.greenAccent,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
                 if (widget.isAdmin && approved.length > 1) ...[
                   const SizedBox(height: 8),
@@ -1382,6 +1651,60 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                         labelStyle: const TextStyle(color: Colors.white70),
                       ),
                   ],
+                ),
+              ],
+
+              if (isApproved) ...[
+                const SizedBox(height: 12),
+                StreamBuilder<RehearsalStatus>(
+                  stream: RehearsalService.watchMyStatus(
+                    scheduleId: widget.scheduleId,
+                    songKey: RehearsalService.songKey(
+                      title.toString(),
+                      artist.toString(),
+                    ),
+                  ),
+                  builder: (context, snapshot) {
+                    final rehearsed = snapshot.data?.rehearsed == true;
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () =>
+                                _toggleRehearsed(songMap, rehearsed),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: rehearsed
+                                  ? Colors.greenAccent
+                                  : Colors.grey,
+                              side: BorderSide(
+                                color: rehearsed
+                                    ? Colors.green.withValues(alpha: 0.55)
+                                    : Colors.white.withValues(alpha: 0.12),
+                              ),
+                            ),
+                            icon: Icon(
+                              rehearsed
+                                  ? Icons.check_circle_rounded
+                                  : Icons.radio_button_unchecked_rounded,
+                              size: 18,
+                            ),
+                            label: Text(
+                              rehearsed ? 'Já ensaiei' : 'Marcar ensaiada',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          tooltip: 'Observação da música',
+                          onPressed: () => _showMySongObservation(songMap),
+                          icon: const Icon(
+                            Icons.sticky_note_2_outlined,
+                            color: Colors.orangeAccent,
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ],
 
