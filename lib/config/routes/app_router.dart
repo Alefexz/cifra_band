@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
+import 'package:cifra_band/core/services/app_owner_service.dart';
 
 import 'package:cifra_band/features/home/presentation/screens/onboarding_screen.dart';
 import 'package:cifra_band/features/home/presentation/screens/home_screen.dart';
@@ -152,8 +153,24 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/support-center',
-      pageBuilder: (context, state) =>
-          _buildFadeTransition(context, state, const SupportCenterScreen()),
+      pageBuilder: (context, state) {
+        if (!AppOwnerService.isCurrentUserOwner) {
+          return _buildFadeTransition(
+            context,
+            state,
+            const _MissingRouteDataScreen(
+              title: 'Acesso restrito',
+              message:
+                  'A central global de suporte é exclusiva do dono do Cifra Band.',
+            ),
+          );
+        }
+        return _buildFadeTransition(
+          context,
+          state,
+          const SupportCenterScreen(),
+        );
+      },
     ),
     GoRoute(
       path: '/official-library',

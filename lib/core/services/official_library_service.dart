@@ -123,9 +123,16 @@ class OfficialLibraryService {
         .doc(churchId)
         .collection('official_songs')
         .where('archived', isEqualTo: false)
-        .orderBy('updated_at', descending: true)
         .snapshots()
-        .map((snapshot) => snapshot.docs.map(OfficialSong.fromDoc).toList());
+        .map((snapshot) {
+          final songs = snapshot.docs.map(OfficialSong.fromDoc).toList();
+          songs.sort((a, b) {
+            final left = a.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            final right = b.updatedAt ?? DateTime.fromMillisecondsSinceEpoch(0);
+            return right.compareTo(left);
+          });
+          return songs;
+        });
   }
 
   static Future<OfficialSong?> findOfficialSong(

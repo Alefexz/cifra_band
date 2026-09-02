@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
+import 'package:cifra_band/core/services/app_owner_service.dart';
 import '../providers/home_providers.dart';
 
 class ProfileScreen extends ConsumerWidget {
@@ -338,6 +339,7 @@ class ProfileScreen extends ConsumerWidget {
           final name = userData['name'] ?? 'Músico';
           final email = userAuth.email ?? 'Sem e-mail cadastrado';
           final isAdmin = userData['is_admin'] == true;
+          final isOwner = AppOwnerService.isCurrentUserOwner;
           final churchId = userData['church_id']?.toString() ?? '';
 
           final List<dynamic> rawRoles = userData['roles'] ?? [];
@@ -627,7 +629,7 @@ class ProfileScreen extends ConsumerWidget {
                   ),
                 ),
 
-                if (isAdmin) ...[
+                if (isOwner) ...[
                   const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,

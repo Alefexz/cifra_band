@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import 'package:cifra_band/core/services/chord_study_service.dart';
 import 'package:cifra_band/core/services/official_library_service.dart';
 import 'package:cifra_band/core/services/played_history_service.dart';
@@ -54,8 +55,13 @@ class _CifraScreenState extends State<CifraScreen> {
 
   final ScrollController _scrollController = ScrollController();
   Timer? _scrollTimer;
+  Timer? _guidedSyncTimer;
   bool _isPlaying = false;
   double _scrollSpeed = 1.0;
+  YoutubePlayerController? _youtubeController;
+  bool _isGuidedMode = false;
+  bool _guidedAutoScroll = true;
+  int _activeSectionIndex = 0;
 
   Color get _pageBackground =>
       _isStageMode ? const Color(0xFF0D0D12) : const Color(0xFFF7F9FC);
@@ -124,6 +130,8 @@ class _CifraScreenState extends State<CifraScreen> {
   @override
   void dispose() {
     _scrollTimer?.cancel();
+    _guidedSyncTimer?.cancel();
+    _youtubeController?.close();
     _scrollController.dispose();
     WakelockPlus.disable();
     super.dispose();
@@ -332,6 +340,325 @@ class _CifraScreenState extends State<CifraScreen> {
     }
 
     await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
+  String? get _youtubeVideoId {
+    final value = widget.song.referenceUrl?.trim() ?? '';
+    if (value.isEmpty) return null;
+    return YoutubePlayerController.convertUrlToId(value);
+  }
+
+  bool get _hasYoutubeReference => _youtubeVideoId != null;
+
+  List<_CifraSection> get _cifraSections {
+    final sections = <_CifraSection>[];
+    final lines = _displayedContent.split('\n');
+
+    for (var index = 0; index < lines.length; index++) {
+      final line = lines[index];
+      if (!TransposerEngine.isHeaderLine(line)) continue;
+      final cleanTitle = line
+          .replaceAll('[', '')
+          .replaceAll(']', '')
+          .trim()
+          .toUpperCase();
+      sections.add(
+        _CifraSection(
+          title: cleanTitle.isEmpty
+              ? 'TRECHO ${sections.length + 1}'
+              : cleanTitle,
+          lineIndex: index,
+        ),
+      );
+    }
+
+    if (sections.isNotEmpty) return sections;
+
+    final nonEmptyLines = lines.where((line) => line.trim().isNotEmpty).length;
+    final estimatedSections = nonEmptyLines <= 24
+        ? 2
+        : nonEmptyLines <= 56
+        ? 4
+        : 6;
+
+    return List.generate(
+      estimatedSections,
+      (index) => _CifraSection(title: 'TRECHO ${index + 1}', lineIndex: index),
+    );
+  }
+
+  Future<void> _toggleGuidedMode() async {
+    if (_isGuidedMode) {
+      _disableGuidedMode();
+      return;
+    }
+    await _enableGuidedMode();
+  }
+
+  Future<void> _enableGuidedMode() async {
+    final videoId = _youtubeVideoId;
+    if (videoId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Essa cifra ainda não tem um link do YouTube salvo.'),
+          backgroundColor: Colors.orange,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    _guidedSyncTimer?.cancel();
+    await _youtubeController?.close();
+    final controller = YoutubePlayerController.fromVideoId(
+      videoId: videoId,
+      autoPlay: false,
+      params: const YoutubePlayerParams(
+        showControls: true,
+        showFullscreenButton: true,
+        interfaceLanguage: 'pt',
+      ),
+    );
+
+    if (!mounted) {
+      await controller.close();
+      return;
+    }
+
+    setState(() {
+      _youtubeController = controller;
+      _isGuidedMode = true;
+      _activeSectionIndex = 0;
+    });
+    _startGuidedSync();
+  }
+
+  void _disableGuidedMode() {
+    _guidedSyncTimer?.cancel();
+    _guidedSyncTimer = null;
+    final controller = _youtubeController;
+    _youtubeController = null;
+    unawaited(controller?.close());
+    if (!mounted) return;
+    setState(() {
+      _isGuidedMode = false;
+      _activeSectionIndex = 0;
+    });
+  }
+
+  void _startGuidedSync() {
+    _guidedSyncTimer = Timer.periodic(
+      const Duration(milliseconds: 1200),
+      (_) => unawaited(_syncGuidedScroll()),
+    );
+  }
+
+  Future<void> _syncGuidedScroll() async {
+    final controller = _youtubeController;
+    if (!_isGuidedMode || controller == null || !_scrollController.hasClients) {
+      return;
+    }
+
+    try {
+      final duration = await controller.duration;
+      final currentTime = await controller.currentTime;
+      final sections = _cifraSections;
+      if (!mounted || duration <= 0 || sections.isEmpty) return;
+
+      final progress = (currentTime / duration).clamp(0.0, 1.0);
+      final nextIndex = (progress * sections.length).floor().clamp(
+        0,
+        sections.length - 1,
+      );
+
+      if (nextIndex != _activeSectionIndex) {
+        setState(() => _activeSectionIndex = nextIndex);
+        if (_guidedAutoScroll) {
+          _scrollToSectionIndex(nextIndex, sections.length);
+        }
+      }
+    } catch (_) {
+      // O WebView pode demorar alguns segundos para liberar duração/posição.
+    }
+  }
+
+  Future<void> _jumpToGuidedSection(int index) async {
+    final sections = _cifraSections;
+    if (sections.isEmpty) return;
+    final safeIndex = index.clamp(0, sections.length - 1);
+    final controller = _youtubeController;
+
+    setState(() => _activeSectionIndex = safeIndex);
+    _scrollToSectionIndex(safeIndex, sections.length);
+
+    if (controller == null) return;
+    try {
+      final duration = await controller.duration;
+      if (duration <= 0 || sections.length <= 1) return;
+      final targetSeconds = duration * (safeIndex / (sections.length - 1));
+      await controller.seekTo(seconds: targetSeconds, allowSeekAhead: true);
+    } catch (_) {
+      // Se o vídeo ainda não estiver pronto, mantém pelo menos a navegação da cifra.
+    }
+  }
+
+  void _scrollToSectionIndex(int index, int totalSections) {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final factor = totalSections <= 1 ? 0.0 : index / (totalSections - 1);
+    final target = (position.maxScrollExtent * factor).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    _scrollController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 520),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Widget _buildGuidedModePanel() {
+    final controller = _youtubeController;
+    if (!_isGuidedMode || controller == null) return const SizedBox.shrink();
+
+    final sections = _cifraSections;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _isStageMode ? const Color(0xFF131923) : const Color(0xFFF1F7FF),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.redAccent.withOpacity(0.24)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withOpacity(0.16),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.smart_display_rounded,
+                  color: Colors.redAccent,
+                  size: 19,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Culto Guiado',
+                      style: TextStyle(
+                        color: _primaryText,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      'A cifra acompanha o YouTube por trechos.',
+                      style: TextStyle(color: _secondaryText, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'Fechar Culto Guiado',
+                onPressed: _disableGuidedMode,
+                icon: Icon(Icons.close_rounded, color: _secondaryText),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: YoutubePlayer(
+              controller: controller,
+              backgroundColor: Colors.black,
+              aspectRatio: 16 / 9,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  sections.isEmpty
+                      ? 'Sem marcações nesta cifra'
+                      : 'Seção ${_activeSectionIndex + 1} de ${sections.length}',
+                  style: TextStyle(
+                    color: _secondaryText,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              FilterChip(
+                selected: _guidedAutoScroll,
+                onSelected: (value) =>
+                    setState(() => _guidedAutoScroll = value),
+                label: const Text('Rolagem inteligente'),
+                avatar: const Icon(Icons.auto_mode_rounded, size: 16),
+                selectedColor: Colors.greenAccent.withOpacity(0.18),
+                backgroundColor: _isStageMode
+                    ? Colors.white.withOpacity(0.06)
+                    : Colors.white,
+                checkmarkColor: Colors.greenAccent,
+                labelStyle: TextStyle(
+                  color: _guidedAutoScroll
+                      ? Colors.greenAccent
+                      : _secondaryText,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          if (sections.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 38,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: sections.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  final isActive = index == _activeSectionIndex;
+                  return ChoiceChip(
+                    selected: isActive,
+                    onSelected: (_) => unawaited(_jumpToGuidedSection(index)),
+                    label: Text(sections[index].title),
+                    selectedColor: Colors.redAccent.withOpacity(0.18),
+                    backgroundColor: _isStageMode
+                        ? Colors.white.withOpacity(0.06)
+                        : Colors.white,
+                    labelStyle: TextStyle(
+                      color: isActive ? Colors.redAccent : _secondaryText,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                    ),
+                    shape: StadiumBorder(
+                      side: BorderSide(
+                        color: isActive
+                            ? Colors.redAccent
+                            : _dividerColor.withOpacity(0.8),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Future<void> _saveOfficialVersion() async {
@@ -1436,6 +1763,16 @@ class _CifraScreenState extends State<CifraScreen> {
                           : Icons.light_mode_rounded,
                       onTap: _toggleStageMode,
                     ),
+                    if (_hasYoutubeReference)
+                      _buildCifraInfoChip(
+                        label: _isGuidedMode
+                            ? 'Culto Guiado ON'
+                            : 'Culto Guiado',
+                        color: Colors.redAccent,
+                        icon: Icons.smart_display_rounded,
+                        selected: _isGuidedMode,
+                        onTap: _toggleGuidedMode,
+                      ),
                     _buildCifraInfoChip(
                       label: 'Acordes/Graus',
                       color: Colors.orangeAccent,
@@ -1450,6 +1787,8 @@ class _CifraScreenState extends State<CifraScreen> {
                     ),
                   ],
                 ),
+
+                _buildGuidedModePanel(),
 
                 if ((widget.song.referenceUrl?.trim().isNotEmpty ?? false) ||
                     (widget.song.bpm?.trim().isNotEmpty ?? false) ||
@@ -1517,6 +1856,7 @@ class _CifraScreenState extends State<CifraScreen> {
   Widget _buildRichCifra() {
     final lines = _displayedContent.split('\n');
     final widgets = <Widget>[];
+    var sectionIndex = 0;
 
     for (String line in lines) {
       if (line.trim().isEmpty) {
@@ -1543,26 +1883,50 @@ class _CifraScreenState extends State<CifraScreen> {
         continue;
       }
       if (TransposerEngine.isHeaderLine(line)) {
+        final currentSectionIndex = sectionIndex++;
+        final isActiveSection =
+            _isGuidedMode && currentSectionIndex == _activeSectionIndex;
         widgets.add(
           Container(
             margin: const EdgeInsets.only(top: 28, bottom: 14),
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
-              color: _headerBackground,
+              color: isActiveSection
+                  ? Colors.redAccent.withOpacity(0.13)
+                  : _headerBackground,
               borderRadius: BorderRadius.circular(10),
               border: Border(
-                left: BorderSide(color: Colors.blueAccent, width: 3),
+                left: BorderSide(
+                  color: isActiveSection ? Colors.redAccent : Colors.blueAccent,
+                  width: isActiveSection ? 4 : 3,
+                ),
               ),
             ),
-            child: Text(
-              line.replaceAll('[', '').replaceAll(']', '').toUpperCase(),
-              textAlign: TextAlign.left,
-              style: TextStyle(
-                color: Colors.blueAccent,
-                fontWeight: FontWeight.bold,
-                fontSize: _fontSize - 2,
-                letterSpacing: 1.2,
-              ),
+            child: Row(
+              children: [
+                if (isActiveSection) ...[
+                  const Icon(
+                    Icons.graphic_eq_rounded,
+                    color: Colors.redAccent,
+                    size: 17,
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Expanded(
+                  child: Text(
+                    line.replaceAll('[', '').replaceAll(']', '').toUpperCase(),
+                    textAlign: TextAlign.left,
+                    style: TextStyle(
+                      color: isActiveSection
+                          ? Colors.redAccent
+                          : Colors.blueAccent,
+                      fontWeight: FontWeight.bold,
+                      fontSize: _fontSize - 2,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         );
@@ -1665,4 +2029,11 @@ class _StudyPill extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CifraSection {
+  const _CifraSection({required this.title, required this.lineIndex});
+
+  final String title;
+  final int lineIndex;
 }

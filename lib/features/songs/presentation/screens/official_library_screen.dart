@@ -1,9 +1,35 @@
 import 'package:cifra_band/core/services/official_library_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-class OfficialLibraryScreen extends StatelessWidget {
+class OfficialLibraryScreen extends StatefulWidget {
   const OfficialLibraryScreen({super.key});
+
+  @override
+  State<OfficialLibraryScreen> createState() => _OfficialLibraryScreenState();
+}
+
+class _OfficialLibraryScreenState extends State<OfficialLibraryScreen> {
+  bool _isAdmin = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAdminFlag();
+  }
+
+  Future<void> _loadAdminFlag() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final doc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .get();
+    if (!mounted) return;
+    setState(() => _isAdmin = doc.data()?['is_admin'] == true);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -22,16 +48,18 @@ class OfficialLibraryScreen extends StatelessWidget {
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900),
         ),
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/official-song-editor'),
-        backgroundColor: Colors.blueAccent,
-        foregroundColor: Colors.white,
-        icon: const Icon(Icons.add_rounded),
-        label: const Text(
-          'Nova cifra',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
-      ),
+      floatingActionButton: _isAdmin
+          ? FloatingActionButton.extended(
+              onPressed: () => context.push('/official-song-editor'),
+              backgroundColor: Colors.blueAccent,
+              foregroundColor: Colors.white,
+              icon: const Icon(Icons.add_rounded),
+              label: const Text(
+                'Nova cifra',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+            )
+          : null,
       body: StreamBuilder<List<OfficialSong>>(
         stream: OfficialLibraryService.watchOfficialSongs(),
         builder: (context, snapshot) {
@@ -65,7 +93,7 @@ class OfficialLibraryScreen extends StatelessWidget {
             separatorBuilder: (_, __) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
               final song = songs[index];
-              return _OfficialSongTile(song: song);
+              return _OfficialSongTile(song: song, canManage: _isAdmin);
             },
           );
         },
@@ -75,9 +103,10 @@ class OfficialLibraryScreen extends StatelessWidget {
 }
 
 class _OfficialSongTile extends StatelessWidget {
-  const _OfficialSongTile({required this.song});
+  const _OfficialSongTile({required this.song, required this.canManage});
 
   final OfficialSong song;
+  final bool canManage;
 
   @override
   Widget build(BuildContext context) {
@@ -152,42 +181,43 @@ class _OfficialSongTile extends StatelessWidget {
                   ],
                 ),
               ),
-              PopupMenuButton<String>(
-                color: const Color(0xFF242432),
-                icon: const Icon(Icons.more_vert_rounded, color: Colors.grey),
-                onSelected: (value) async {
-                  if (value == 'edit') {
-                    context.push('/official-song-editor', extra: song);
-                  }
-                  if (value == 'archive') {
-                    await OfficialLibraryService.archiveSong(song.id);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Cifra removida da biblioteca.'),
-                          backgroundColor: Colors.orange,
-                        ),
-                      );
+              if (canManage)
+                PopupMenuButton<String>(
+                  color: const Color(0xFF242432),
+                  icon: const Icon(Icons.more_vert_rounded, color: Colors.grey),
+                  onSelected: (value) async {
+                    if (value == 'edit') {
+                      context.push('/official-song-editor', extra: song);
                     }
-                  }
-                },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(
-                    value: 'edit',
-                    child: Text(
-                      'Editar',
-                      style: TextStyle(color: Colors.white),
+                    if (value == 'archive') {
+                      await OfficialLibraryService.archiveSong(song.id);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Cifra removida da biblioteca.'),
+                            backgroundColor: Colors.orange,
+                          ),
+                        );
+                      }
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'edit',
+                      child: Text(
+                        'Editar',
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ),
-                  ),
-                  PopupMenuItem(
-                    value: 'archive',
-                    child: Text(
-                      'Arquivar',
-                      style: TextStyle(color: Colors.orangeAccent),
+                    PopupMenuItem(
+                      value: 'archive',
+                      child: Text(
+                        'Arquivar',
+                        style: TextStyle(color: Colors.orangeAccent),
+                      ),
                     ),
-                  ),
-                ],
-              ),
+                  ],
+                ),
             ],
           ),
         ),
