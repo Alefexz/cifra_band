@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:cifra_band/core/services/played_history_service.dart';
 import 'package:cifra_band/features/songs/data/models/song_model.dart';
 
 class PlayedHistoryScreen extends StatelessWidget {
@@ -28,6 +29,15 @@ class PlayedHistoryScreen extends StatelessWidget {
           'Histórico',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Limpar histórico',
+            onPressed: user == null
+                ? null
+                : () => _confirmClearHistory(context),
+            icon: const Icon(Icons.delete_sweep_rounded, color: Colors.white70),
+          ),
+        ],
       ),
       body: user == null
           ? const Center(
@@ -92,6 +102,7 @@ class PlayedHistoryScreen extends StatelessWidget {
                     );
 
                     return _HistoryTile(
+                      docId: docs[index].id,
                       song: song,
                       playedAt: playedAt,
                       onTap: () => context.push('/cifra', extra: song),
@@ -100,6 +111,44 @@ class PlayedHistoryScreen extends StatelessWidget {
                 );
               },
             ),
+    );
+  }
+
+  static Future<void> _confirmClearHistory(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF16161E),
+        title: const Text(
+          'Limpar histórico?',
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+        ),
+        content: const Text(
+          'Isso remove todas as cifras tocadas recentemente deste aparelho/usuário.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(backgroundColor: Colors.redAccent),
+            child: const Text('Limpar'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+    await PlayedHistoryService.clearHistory();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Histórico limpo.'),
+        backgroundColor: Colors.green,
+      ),
     );
   }
 }
@@ -134,11 +183,13 @@ class _EmptyHistory extends StatelessWidget {
 }
 
 class _HistoryTile extends StatelessWidget {
+  final String docId;
   final SongModel song;
   final DateTime? playedAt;
   final VoidCallback onTap;
 
   const _HistoryTile({
+    required this.docId,
     required this.song,
     required this.playedAt,
     required this.onTap,
@@ -185,7 +236,65 @@ class _HistoryTile extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
         ),
-        trailing: const Icon(Icons.chevron_right_rounded, color: Colors.grey),
+        trailing: PopupMenuButton<String>(
+          color: const Color(0xFF20202A),
+          icon: const Icon(Icons.more_vert_rounded, color: Colors.grey),
+          onSelected: (value) async {
+            if (value == 'open') {
+              onTap();
+              return;
+            }
+
+            if (value == 'report') {
+              context.push(
+                '/feedback',
+                extra: {
+                  'type': 'wrong_chord',
+                  'screen': 'Histórico',
+                  'message':
+                      'Problema na cifra:\n${song.title} - ${song.artist}\nTom: ${song.originalKey}\n\nDescreva o erro: ',
+                },
+              );
+              return;
+            }
+
+            if (value == 'delete') {
+              await PlayedHistoryService.deleteSongById(docId);
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('${song.title} removida do histórico.'),
+                  backgroundColor: Colors.green,
+                ),
+              );
+            }
+          },
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: 'open',
+              child: _HistoryMenuItem(
+                icon: Icons.open_in_new_rounded,
+                label: 'Abrir cifra',
+              ),
+            ),
+            PopupMenuItem(
+              value: 'report',
+              child: _HistoryMenuItem(
+                icon: Icons.report_problem_rounded,
+                label: 'Reportar problema',
+              ),
+            ),
+            PopupMenuDivider(),
+            PopupMenuItem(
+              value: 'delete',
+              child: _HistoryMenuItem(
+                icon: Icons.delete_outline_rounded,
+                label: 'Excluir',
+                danger: true,
+              ),
+            ),
+          ],
+        ),
         onTap: onTap,
       ),
     );
@@ -198,5 +307,32 @@ class _HistoryTile extends StatelessWidget {
     final hour = playedAt!.hour.toString().padLeft(2, '0');
     final minute = playedAt!.minute.toString().padLeft(2, '0');
     return '${song.artist} • $day/$month às $hour:$minute';
+  }
+}
+
+class _HistoryMenuItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool danger;
+
+  const _HistoryMenuItem({
+    required this.icon,
+    required this.label,
+    this.danger = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? Colors.redAccent : Colors.white;
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 18),
+        const SizedBox(width: 10),
+        Text(
+          label,
+          style: TextStyle(color: color, fontWeight: FontWeight.w700),
+        ),
+      ],
+    );
   }
 }

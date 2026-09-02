@@ -41,6 +41,36 @@ class PlayedHistoryService {
     await batch.commit();
   }
 
+  static Future<void> deleteSongById(String docId) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('played_history')
+        .doc(docId)
+        .delete();
+  }
+
+  static Future<void> clearHistory() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final historyRef = FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .collection('played_history');
+    final snapshot = await historyRef.limit(100).get();
+    if (snapshot.docs.isEmpty) return;
+
+    final batch = FirebaseFirestore.instance.batch();
+    for (final doc in snapshot.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+  }
+
   static String _buildDocId(String artist, String title) {
     final raw = '${artist}_$title'.toLowerCase();
     return raw

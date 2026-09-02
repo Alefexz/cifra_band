@@ -105,6 +105,9 @@ class SongScraperDatasource {
           originalKey: resolvedOriginalKey,
           shapeKey: resolvedShapeKey.isEmpty ? null : resolvedShapeKey,
           capo: capo.isEmpty ? null : capo,
+          referenceUrl: _clean(data['referenceUrl']).isEmpty
+              ? null
+              : _clean(data['referenceUrl']),
           content: content,
           url: data['url'] ?? '',
         );
@@ -165,6 +168,7 @@ class SongScraperDatasource {
       final String capo = _normalizeCapo(_clean(decoded['capo']));
       final String content = _clean(decoded['content']);
       final String url = _clean(decoded['url']);
+      final String referenceUrl = _clean(decoded['referenceUrl']);
       final String resolvedShapeKey = TransposerEngine.resolveShapeKey(
         originalKey: originalKey,
         shapeKey: shapeKey,
@@ -185,6 +189,7 @@ class SongScraperDatasource {
         originalKey: resolvedOriginalKey,
         shapeKey: resolvedShapeKey.isEmpty ? null : resolvedShapeKey,
         capo: capo.isEmpty ? null : capo,
+        referenceUrl: referenceUrl.isEmpty ? null : referenceUrl,
         content: content,
         url: url,
       );

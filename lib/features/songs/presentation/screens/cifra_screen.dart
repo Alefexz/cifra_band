@@ -35,6 +35,8 @@ class CifraScreen extends StatefulWidget {
 }
 
 class _CifraScreenState extends State<CifraScreen> {
+  static const bool _youtubeGuidedEnabled = false;
+
   late String _originalPitch;
   late String _shapePitch;
   late String _currentPitch;
@@ -361,7 +363,8 @@ class _CifraScreenState extends State<CifraScreen> {
     return YoutubePlayerController.convertUrlToId(value);
   }
 
-  bool get _hasYoutubeReference => _youtubeVideoId != null;
+  bool get _hasYoutubeReference =>
+      _youtubeGuidedEnabled && _youtubeVideoId != null;
 
   List<_CifraSection> get _cifraSections {
     final sections = <_CifraSection>[];
@@ -1229,8 +1232,8 @@ class _CifraScreenState extends State<CifraScreen> {
               Expanded(
                 child: Text(
                   shape == null
-                      ? 'Violão: formato ainda não cadastrado'
-                      : 'Violão/Guitarra · cordas E A D G B e',
+                      ? 'Violão/Guitarra · notas do acorde'
+                      : 'Violão/Guitarra · ${shape.label}',
                   style: TextStyle(
                     color: _primaryText,
                     fontWeight: FontWeight.w900,
@@ -1252,6 +1255,19 @@ class _CifraScreenState extends State<CifraScreen> {
                   lineColor: _dividerColor,
                 ),
                 child: const SizedBox.expand(),
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 8),
+            Text(
+              insight.notes.isEmpty
+                  ? 'Ainda não há digitação segura cadastrada para este acorde.'
+                  : 'Notas: ${insight.notes.join(' - ')}. Digitação não cadastrada com segurança.',
+              style: TextStyle(
+                color: _secondaryText,
+                height: 1.35,
+                fontSize: compact ? 11 : 13,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ],
@@ -2263,7 +2279,7 @@ class _CifraScreenState extends State<CifraScreen> {
                   ],
                 ),
 
-                if ((widget.song.referenceUrl?.trim().isNotEmpty ?? false) ||
+                if (_hasYoutubeReference ||
                     (widget.song.bpm?.trim().isNotEmpty ?? false) ||
                     (widget.song.rehearsalNotes?.trim().isNotEmpty ??
                         false)) ...[
@@ -2272,7 +2288,7 @@ class _CifraScreenState extends State<CifraScreen> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      if (widget.song.referenceUrl?.trim().isNotEmpty ?? false)
+                      if (_hasYoutubeReference)
                         ActionChip(
                           avatar: const Icon(Icons.play_circle_outline_rounded),
                           label: const Text('Referência'),
@@ -2613,7 +2629,7 @@ class _GuitarChordPainter extends CustomPainter {
     required this.lineColor,
   });
 
-  final List<String> shape;
+  final GuitarChordShape shape;
   final Color color;
   final Color textColor;
   final Color lineColor;
@@ -2651,8 +2667,21 @@ class _GuitarChordPainter extends CustomPainter {
       ..strokeWidth = 3;
     canvas.drawLine(Offset(left, top), Offset(right, top), nutPaint);
 
-    for (var i = 0; i < shape.length && i < strings; i++) {
-      final value = shape[i];
+    final positions = shape.positions;
+    final baseFret = shape.baseFret;
+    if (baseFret > 1) {
+      _drawCenteredText(
+        canvas,
+        '$baseFretª',
+        Offset(left - 20, top + fretGap * 0.5),
+        textColor.withValues(alpha: 0.78),
+        10,
+        FontWeight.w900,
+      );
+    }
+
+    for (var i = 0; i < positions.length && i < strings; i++) {
+      final value = positions[i];
       final x = left + stringGap * i;
       if (value == 'x' || value == '0') {
         _drawCenteredText(
@@ -2667,17 +2696,10 @@ class _GuitarChordPainter extends CustomPainter {
       }
 
       final fret = int.tryParse(value) ?? 1;
-      final normalizedFret = ((fret - 1) % frets) + 1;
+      final normalizedFret = baseFret > 1 ? fret - baseFret + 1 : fret;
+      if (normalizedFret < 1 || normalizedFret > frets) continue;
       final y = top + fretGap * (normalizedFret - 0.5);
       canvas.drawCircle(Offset(x, y), size.height * 0.055, markerPaint);
-      _drawCenteredText(
-        canvas,
-        '$fret',
-        Offset(x, y),
-        Colors.black,
-        10,
-        FontWeight.w900,
-      );
     }
   }
 
@@ -2704,7 +2726,8 @@ class _GuitarChordPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _GuitarChordPainter oldDelegate) {
-    return oldDelegate.shape.join(',') != shape.join(',') ||
+    return oldDelegate.shape.positions.join(',') != shape.positions.join(',') ||
+        oldDelegate.shape.label != shape.label ||
         oldDelegate.color != color ||
         oldDelegate.textColor != textColor ||
         oldDelegate.lineColor != lineColor;

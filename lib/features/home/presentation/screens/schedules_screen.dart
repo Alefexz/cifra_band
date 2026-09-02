@@ -5,6 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 
+import 'availability_screen.dart';
+
 class SchedulesScreen extends StatefulWidget {
   final String churchId;
   final bool isAdmin;
@@ -26,7 +28,7 @@ class _SchedulesScreenState extends State<SchedulesScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
   @override
@@ -52,6 +54,8 @@ class _SchedulesScreenState extends State<SchedulesScreen>
         ),
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           indicatorColor: Colors.blueAccent,
           indicatorWeight: 3,
           labelColor: Colors.blueAccent,
@@ -64,6 +68,7 @@ class _SchedulesScreenState extends State<SchedulesScreen>
           tabs: const [
             Tab(text: 'PRÓXIMOS CULTOS'),
             Tab(text: 'HISTÓRICO'),
+            Tab(text: 'DISPONIBILIDADE'),
           ],
         ),
       ),
@@ -72,6 +77,7 @@ class _SchedulesScreenState extends State<SchedulesScreen>
         children: [
           _buildSchedulesList(isFuture: true),
           _buildSchedulesList(isFuture: false),
+          const AvailabilityScreen(embedded: true),
         ],
       ),
     );

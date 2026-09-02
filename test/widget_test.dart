@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:cifra_band/core/services/chord_study_service.dart';
 import 'package:cifra_band/features/songs/domain/transposer_engine.dart';
 
 void main() {
@@ -39,21 +40,23 @@ void main() {
     expect(transposed, 'D/F# E/G# Bm7 A/C# D7M B7(2)');
   });
 
-  test('resolveDisplayedKey infers minor real key from capo shape', () {
-    final realKey = TransposerEngine.resolveDisplayedKey(
-      originalKey: 'Bb',
-      shapeKey: 'Am',
-      capo: '1',
-    );
+  test(
+    'resolveDisplayedKey trusts explicit source key instead of guessing minor',
+    () {
+      final realKey = TransposerEngine.resolveDisplayedKey(
+        originalKey: 'Bb',
+        shapeKey: 'Am',
+        capo: '1',
+      );
 
-    expect(realKey, 'Bbm');
-    expect(TransposerEngine.isMinorKey(realKey), isTrue);
-    expect(TransposerEngine.toneOptionsForKey(realKey), contains('Bbm'));
-    expect(TransposerEngine.toneOptionsForKey(realKey), isNot(contains('Bb')));
-  });
+      expect(realKey, 'Bb');
+      expect(TransposerEngine.isMinorKey(realKey), isFalse);
+      expect(TransposerEngine.toneOptionsForKey(realKey), contains('Bb'));
+    },
+  );
 
   test(
-    'resolveDisplayedKey repairs old cached major shape when content is minor',
+    'resolveShapeKey does not rewrite explicit source shape from content counts',
     () {
       const content = '[Intro] C Am F7M Am F7M\nDm7 F7M C G4\nAm F C G';
       final shapeKey = TransposerEngine.resolveShapeKey(
@@ -62,15 +65,8 @@ void main() {
         capo: '1',
         content: content,
       );
-      final realKey = TransposerEngine.resolveDisplayedKey(
-        originalKey: 'Bb',
-        shapeKey: shapeKey,
-        capo: '1',
-        content: content,
-      );
 
-      expect(shapeKey, 'Am');
-      expect(realKey, 'Bbm');
+      expect(shapeKey, 'A');
     },
   );
 
@@ -119,5 +115,23 @@ E|-------0---------|
 A casa do Pai
 Em Ti eu vou descansar
 ''');
+  });
+
+  test('chord study keeps slash bass and degree separated', () {
+    final insight = ChordStudyService.insightFor('D/F#', 'B');
+
+    expect(insight.degree, 'b3');
+    expect(insight.roman, 'bIII/5');
+    expect(insight.notes, ['F#', 'D', 'A']);
+    expect(insight.guitarShape?.positions, ['2', 'x', '0', '2', '3', '2']);
+  });
+
+  test('chord study does not draw C7M as plain C', () {
+    final insight = ChordStudyService.insightFor('C7M', 'B');
+
+    expect(insight.degree, 'b2');
+    expect(insight.roman, 'bII7M');
+    expect(insight.notes, ['C', 'E', 'G', 'B']);
+    expect(insight.guitarShape?.positions, ['x', '3', '2', '0', '0', '0']);
   });
 }
