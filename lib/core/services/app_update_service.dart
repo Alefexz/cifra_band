@@ -213,6 +213,7 @@ class AppUpdateService {
                       _downloadAndInstallApk(
                         context: downloadContext,
                         updateInfo: updateInfo,
+                        forceUpdate: forceUpdate,
                       ),
                     );
                   });
@@ -229,6 +230,7 @@ class AppUpdateService {
   static Future<void> _downloadAndInstallApk({
     required BuildContext context,
     required AppUpdateInfo updateInfo,
+    required bool forceUpdate,
   }) async {
     if (!Platform.isAndroid) {
       await _openReleasePage(updateInfo.apkUrl);
@@ -238,7 +240,8 @@ class AppUpdateService {
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => _ApkDownloadDialog(updateInfo: updateInfo),
+      builder: (_) =>
+          _ApkDownloadDialog(updateInfo: updateInfo, forceUpdate: forceUpdate),
     );
   }
 
@@ -371,9 +374,13 @@ class AppUpdateService {
 }
 
 class _ApkDownloadDialog extends StatefulWidget {
-  const _ApkDownloadDialog({required this.updateInfo});
+  const _ApkDownloadDialog({
+    required this.updateInfo,
+    required this.forceUpdate,
+  });
 
   final AppUpdateInfo updateInfo;
+  final bool forceUpdate;
 
   @override
   State<_ApkDownloadDialog> createState() => _ApkDownloadDialogState();
@@ -420,7 +427,13 @@ class _ApkDownloadDialogState extends State<_ApkDownloadDialog> {
         {'path': apkFile.path},
       );
 
-      if (mounted) {
+      if (!mounted) return;
+      if (widget.forceUpdate) {
+        setState(() {
+          _status =
+              'Instalador aberto. Conclua a atualização para continuar usando.';
+        });
+      } else {
         Navigator.of(context, rootNavigator: true).pop();
       }
     } catch (error) {
@@ -446,7 +459,7 @@ class _ApkDownloadDialogState extends State<_ApkDownloadDialog> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: _failed,
+      canPop: _failed && !widget.forceUpdate,
       child: AlertDialog(
         backgroundColor: const Color(0xFF171821),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
@@ -469,23 +482,32 @@ class _ApkDownloadDialogState extends State<_ApkDownloadDialog> {
             if (_failed) ...[
               const SizedBox(height: 14),
               Text(
-                'Confira sua internet ou abra a pagina da versao.',
+                widget.forceUpdate
+                    ? 'Esta versão precisa ser corrigida. Tente novamente para continuar.'
+                    : 'Confira sua internet ou abra a pagina da versao.',
                 style: TextStyle(color: Colors.white.withValues(alpha: 0.70)),
               ),
             ],
           ],
         ),
         actions: [
-          if (_failed)
+          if (_failed && !widget.forceUpdate)
             TextButton(
               onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
               child: const Text('Fechar'),
             ),
           if (_failed)
             FilledButton(
-              onPressed: () =>
-                  AppUpdateService._openReleasePage(widget.updateInfo.apkUrl),
-              child: const Text('Abrir pagina'),
+              onPressed: () {
+                setState(() {
+                  _failed = false;
+                  _started = false;
+                  _progress = 0;
+                  _status = 'Preparando download...';
+                });
+                unawaited(_startDownload());
+              },
+              child: const Text('Tentar novamente'),
             ),
         ],
       ),
