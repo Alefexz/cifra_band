@@ -33,6 +33,37 @@ class _MySupportScreenState extends State<MySupportScreen> {
     if (mounted) setState(_load);
   }
 
+  Future<void> _changeTicketStatus(SupportTicket ticket, String status) async {
+    try {
+      await SupportTicketService.updateMyTicketStatus(
+        ticketId: ticket.id,
+        status: status,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            status == 'open'
+                ? 'Chamado reaberto para o suporte.'
+                : 'Obrigado! Chamado marcado como resolvido.',
+          ),
+          backgroundColor: const Color(0xFF22C55E),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      setState(_load);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Não consegui atualizar: $error'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -145,7 +176,12 @@ class _MySupportScreenState extends State<MySupportScreen> {
                     ...result.tickets.map(
                       (ticket) => Padding(
                         padding: const EdgeInsets.only(bottom: 12),
-                        child: _MyTicketCard(ticket: ticket),
+                        child: _MyTicketCard(
+                          ticket: ticket,
+                          onResolve: () =>
+                              _changeTicketStatus(ticket, 'resolved'),
+                          onReopen: () => _changeTicketStatus(ticket, 'open'),
+                        ),
                       ),
                     ),
                 ],
@@ -159,9 +195,15 @@ class _MySupportScreenState extends State<MySupportScreen> {
 }
 
 class _MyTicketCard extends StatelessWidget {
-  const _MyTicketCard({required this.ticket});
+  const _MyTicketCard({
+    required this.ticket,
+    required this.onResolve,
+    required this.onReopen,
+  });
 
   final SupportTicket ticket;
+  final VoidCallback onResolve;
+  final VoidCallback onReopen;
 
   @override
   Widget build(BuildContext context) {
@@ -203,58 +245,42 @@ class _MyTicketCard extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: ticket.hasAdminReply
-                  ? const Color(0xFF10233A)
-                  : Colors.white.withValues(alpha: 0.04),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          _ConversationTimeline(ticket: ticket),
+          if (ticket.canUserResolve || ticket.canUserReopen) ...[
+            const SizedBox(height: 14),
+            Row(
               children: [
-                Row(
-                  children: [
-                    Icon(
-                      ticket.hasAdminReply
-                          ? Icons.mark_chat_read_rounded
-                          : Icons.hourglass_top_rounded,
-                      color: ticket.hasAdminReply
-                          ? Colors.blueAccent
-                          : Colors.grey.shade500,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      ticket.hasAdminReply
-                          ? 'Resposta do suporte'
-                          : 'Ainda sem resposta',
-                      style: TextStyle(
-                        color: ticket.hasAdminReply
-                            ? Colors.white
-                            : Colors.grey.shade400,
-                        fontWeight: FontWeight.w900,
+                if (ticket.canUserResolve)
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: onResolve,
+                      icon: const Icon(Icons.check_circle_rounded),
+                      label: const Text('Resolveu'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF22C55E),
+                        foregroundColor: Colors.white,
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  ticket.hasAdminReply
-                      ? ticket.adminReplyMessage
-                      : 'O suporte vai responder por aqui.',
-                  style: TextStyle(
-                    color: ticket.hasAdminReply
-                        ? Colors.white.withValues(alpha: 0.88)
-                        : Colors.grey.shade500,
-                    height: 1.35,
                   ),
-                ),
+                if (ticket.canUserResolve && ticket.canUserReopen)
+                  const SizedBox(width: 10),
+                if (ticket.canUserReopen)
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onReopen,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Ainda preciso'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.14),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -263,6 +289,116 @@ class _MyTicketCard extends StatelessWidget {
   static String _formatDate(DateTime? value) {
     if (value == null) return '';
     return DateFormat('dd/MM HH:mm').format(value.toLocal());
+  }
+}
+
+class _ConversationTimeline extends StatelessWidget {
+  const _ConversationTimeline({required this.ticket});
+
+  final SupportTicket ticket;
+
+  @override
+  Widget build(BuildContext context) {
+    final messages = ticket.messages;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: ticket.hasAdminReply
+            ? const Color(0xFF10233A)
+            : Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                ticket.hasAdminReply
+                    ? Icons.mark_chat_read_rounded
+                    : Icons.hourglass_top_rounded,
+                color: ticket.hasAdminReply
+                    ? Colors.blueAccent
+                    : Colors.grey.shade500,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                ticket.hasAdminReply
+                    ? 'Conversa do chamado'
+                    : 'Ainda sem resposta',
+                style: TextStyle(
+                  color: ticket.hasAdminReply
+                      ? Colors.white
+                      : Colors.grey.shade400,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (!ticket.hasAdminReply)
+            Text(
+              'O suporte vai responder por aqui.',
+              style: TextStyle(color: Colors.grey.shade500, height: 1.35),
+            )
+          else
+            ...messages.map(
+              (message) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _MessageBubble(message: message),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MessageBubble extends StatelessWidget {
+  const _MessageBubble({required this.message});
+
+  final SupportMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = message.isAdmin ? Colors.blueAccent : Colors.white70;
+    final label = message.isAdmin ? 'Suporte' : 'Você';
+
+    return Column(
+      crossAxisAlignment: message.isAdmin
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.end,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 11,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: message.isAdmin
+                ? Colors.blueAccent.withValues(alpha: 0.18)
+                : Colors.white.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            message.message,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.9),
+              height: 1.35,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 

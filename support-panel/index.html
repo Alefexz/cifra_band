@@ -468,6 +468,16 @@
             <p class="subtitle" style="margin-bottom: 10px;">Status</p>
             <div class="filters" id="filters"></div>
           </div>
+
+          <div>
+            <p class="subtitle" style="margin-bottom: 10px;">Tipo</p>
+            <div class="filters" id="typeFilters"></div>
+          </div>
+
+          <div>
+            <p class="subtitle" style="margin-bottom: 10px;">Prioridade</p>
+            <div class="filters" id="severityFilters"></div>
+          </div>
         </aside>
 
         <section class="main">
@@ -491,6 +501,8 @@
       idToken: localStorage.getItem('cifraBandSupportToken') || '',
       email: localStorage.getItem('cifraBandSupportEmail') || '',
       status: 'open',
+      type: 'all',
+      severity: 'all',
       tickets: [],
       filtered: []
     };
@@ -503,13 +515,17 @@
     };
 
     const typeLabels = {
+      all: 'Tudo',
       bug: 'Bug',
       wrong_chord: 'Cifra errada',
+      notification: 'Notificação',
+      update: 'Atualização',
       question: 'Dúvida',
       suggestion: 'Sugestão'
     };
 
     const severityLabels = {
+      all: 'Todas',
       critical: 'Crítico',
       high: 'Alto',
       medium: 'Médio',
@@ -589,7 +605,13 @@
       $('ticketsList').innerHTML = '<div class="card empty"><strong>Carregando</strong>Aguarde um instante.</div>';
 
       try {
-        const body = await api(`/support-tickets?status=${state.status}&limit=100`);
+        const params = new URLSearchParams({
+          status: state.status,
+          type: state.type,
+          severity: state.severity,
+          limit: '100'
+        });
+        const body = await api(`/support-tickets?${params.toString()}`);
         state.tickets = Array.isArray(body.tickets) ? body.tickets : [];
         applySearch();
         showToast('Feedbacks atualizados.');
@@ -618,13 +640,19 @@
     }
 
     function renderFilters() {
-      $('filters').innerHTML = Object.entries(statusLabels).map(([value, label]) => (
-        `<button class="chip ${state.status === value ? 'active' : ''}" data-status="${value}" type="button">${label}</button>`
+      renderFilterGroup('filters', statusLabels, 'status');
+      renderFilterGroup('typeFilters', typeLabels, 'type');
+      renderFilterGroup('severityFilters', severityLabels, 'severity');
+    }
+
+    function renderFilterGroup(elementId, labels, stateKey) {
+      $(elementId).innerHTML = Object.entries(labels).map(([value, label]) => (
+        `<button class="chip ${state[stateKey] === value ? 'active' : ''}" data-filter="${value}" type="button">${label}</button>`
       )).join('');
 
-      $('filters').querySelectorAll('button').forEach((button) => {
+      $(elementId).querySelectorAll('button').forEach((button) => {
         button.addEventListener('click', () => {
-          state.status = button.dataset.status;
+          state[stateKey] = button.dataset.filter;
           renderFilters();
           loadTickets();
         });
@@ -672,6 +700,7 @@
       const adminReply = ticket.admin_reply || {};
       const adminReplyMessage = adminReply.message || '';
       const logs = renderLogs(ticket.logs);
+      const conversation = renderConversation(ticket);
 
       return `
         <article class="card ticket">
@@ -694,6 +723,7 @@
             <div class="detail">App<strong>${escapeHtml(`${app.version || '-'}+${app.build_number || '-'}`)}</strong></div>
             <div class="detail">Ticket<strong>${escapeHtml(ticket.id || '-')}</strong></div>
           </div>
+          ${conversation}
           ${logs}
           ${adminReplyMessage ? `
             <div class="admin-reply">
@@ -712,6 +742,38 @@
           </div>
         </article>
       `;
+    }
+
+    function renderConversation(ticket) {
+      const messages = Array.isArray(ticket.messages) && ticket.messages.length
+        ? ticket.messages
+        : legacyMessages(ticket);
+
+      const html = messages.map((message) => {
+        const isAdmin = message.sender === 'admin';
+        const label = isAdmin ? 'Suporte' : 'Usuário';
+        const at = message.created_at ? new Date(message.created_at).toLocaleString('pt-BR') : '';
+        return `
+          <div class="detail">
+            ${escapeHtml(label)} ${at ? `<span class="subtitle">• ${escapeHtml(at)}</span>` : ''}
+            <strong>${escapeHtml(message.message || '')}</strong>
+          </div>
+        `;
+      }).join('');
+
+      return `<div class="details">${html}</div>`;
+    }
+
+    function legacyMessages(ticket) {
+      const result = [{ sender: 'user', message: ticket.message || '', created_at: ticket.created_at }];
+      if (ticket.admin_reply?.message) {
+        result.push({
+          sender: 'admin',
+          message: ticket.admin_reply.message,
+          created_at: ticket.admin_reply.created_at
+        });
+      }
+      return result;
     }
 
     function renderLogs(logs) {
@@ -734,7 +796,7 @@
 
     function exportCsv() {
       const rows = [
-        ['id', 'status', 'tipo', 'prioridade', 'usuario', 'email', 'tela', 'mensagem', 'criado_em'],
+        ['id', 'status', 'tipo', 'prioridade', 'usuario', 'email', 'tela', 'mensagem', 'resposta', 'criado_em'],
         ...state.filtered.map(ticket => [
           ticket.id,
           ticket.status,
@@ -744,6 +806,7 @@
           ticket.user?.email || '',
           ticket.screen || '',
           ticket.message || '',
+          ticket.admin_reply?.message || '',
           ticket.created_at || ''
         ])
       ];

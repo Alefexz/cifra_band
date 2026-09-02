@@ -12,6 +12,8 @@ class SupportCenterScreen extends StatefulWidget {
 
 class _SupportCenterScreenState extends State<SupportCenterScreen> {
   String _status = 'open';
+  String _type = 'all';
+  String _severity = 'all';
   late Future<List<SupportTicket>> _ticketsFuture;
 
   static const _statusFilters = [
@@ -21,6 +23,24 @@ class _SupportCenterScreenState extends State<SupportCenterScreen> {
     _StatusFilter(value: 'all', label: 'Todos'),
   ];
 
+  static const _typeFilters = [
+    _StatusFilter(value: 'all', label: 'Tudo'),
+    _StatusFilter(value: 'bug', label: 'Bug'),
+    _StatusFilter(value: 'wrong_chord', label: 'Cifra'),
+    _StatusFilter(value: 'notification', label: 'Notif.'),
+    _StatusFilter(value: 'update', label: 'Atualiz.'),
+    _StatusFilter(value: 'question', label: 'Dúvida'),
+    _StatusFilter(value: 'suggestion', label: 'Sugestão'),
+  ];
+
+  static const _severityFilters = [
+    _StatusFilter(value: 'all', label: 'Todas'),
+    _StatusFilter(value: 'critical', label: 'Crítico'),
+    _StatusFilter(value: 'high', label: 'Alto'),
+    _StatusFilter(value: 'medium', label: 'Médio'),
+    _StatusFilter(value: 'low', label: 'Baixo'),
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -28,7 +48,11 @@ class _SupportCenterScreenState extends State<SupportCenterScreen> {
   }
 
   void _loadTickets() {
-    _ticketsFuture = SupportTicketService.fetchTickets(status: _status);
+    _ticketsFuture = SupportTicketService.fetchTickets(
+      status: _status,
+      type: _type,
+      severity: _severity,
+    );
   }
 
   Future<void> _refresh() async {
@@ -130,6 +154,8 @@ class _SupportCenterScreenState extends State<SupportCenterScreen> {
                   ),
                 ),
                 const SizedBox(height: 20),
+                _SupportMessageTimeline(ticket: ticket),
+                const SizedBox(height: 12),
                 _DetailRow(
                   icon: Icons.person_rounded,
                   label: 'Usuário',
@@ -293,36 +319,43 @@ class _SupportCenterScreenState extends State<SupportCenterScreen> {
             ),
             SizedBox(
               height: 44,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                itemBuilder: (context, index) {
-                  final filter = _statusFilters[index];
-                  final selected = filter.value == _status;
-                  return ChoiceChip(
-                    selected: selected,
-                    label: Text(filter.label),
-                    selectedColor: Colors.blueAccent,
-                    backgroundColor: const Color(0xFF16161E),
-                    labelStyle: TextStyle(
-                      color: selected ? Colors.white : Colors.grey.shade400,
-                      fontWeight: FontWeight.w800,
-                    ),
-                    side: BorderSide(
-                      color: selected
-                          ? Colors.blueAccent
-                          : Colors.white.withValues(alpha: 0.08),
-                    ),
-                    onSelected: (_) {
-                      setState(() {
-                        _status = filter.value;
-                        _loadTickets();
-                      });
-                    },
-                  );
+              child: _FilterStrip(
+                filters: _statusFilters,
+                selected: _status,
+                onSelected: (value) {
+                  setState(() {
+                    _status = value;
+                    _loadTickets();
+                  });
                 },
-                separatorBuilder: (context, index) => const SizedBox(width: 8),
-                itemCount: _statusFilters.length,
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 44,
+              child: _FilterStrip(
+                filters: _typeFilters,
+                selected: _type,
+                onSelected: (value) {
+                  setState(() {
+                    _type = value;
+                    _loadTickets();
+                  });
+                },
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 44,
+              child: _FilterStrip(
+                filters: _severityFilters,
+                selected: _severity,
+                onSelected: (value) {
+                  setState(() {
+                    _severity = value;
+                    _loadTickets();
+                  });
+                },
               ),
             ),
             const SizedBox(height: 8),
@@ -485,6 +518,125 @@ class _TicketCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _FilterStrip extends StatelessWidget {
+  const _FilterStrip({
+    required this.filters,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final List<_StatusFilter> filters;
+  final String selected;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      itemBuilder: (context, index) {
+        final filter = filters[index];
+        final isSelected = filter.value == selected;
+
+        return ChoiceChip(
+          selected: isSelected,
+          label: Text(filter.label),
+          selectedColor: Colors.blueAccent,
+          backgroundColor: const Color(0xFF16161E),
+          labelStyle: TextStyle(
+            color: isSelected ? Colors.white : Colors.grey.shade400,
+            fontWeight: FontWeight.w800,
+          ),
+          side: BorderSide(
+            color: isSelected
+                ? Colors.blueAccent
+                : Colors.white.withValues(alpha: 0.08),
+          ),
+          onSelected: (_) => onSelected(filter.value),
+        );
+      },
+      separatorBuilder: (context, index) => const SizedBox(width: 8),
+      itemCount: filters.length,
+    );
+  }
+}
+
+class _SupportMessageTimeline extends StatelessWidget {
+  const _SupportMessageTimeline({required this.ticket});
+
+  final SupportTicket ticket;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.04),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.forum_rounded, color: Colors.blueAccent, size: 19),
+              SizedBox(width: 8),
+              Text(
+                'Conversa',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...ticket.messages.map(
+            (message) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _TimelineMessage(message: message),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TimelineMessage extends StatelessWidget {
+  const _TimelineMessage({required this.message});
+
+  final SupportMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    final sender = message.isAdmin ? 'Suporte' : 'Usuário';
+    final color = message.isAdmin ? Colors.blueAccent : Colors.white70;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          sender,
+          style: TextStyle(
+            color: color,
+            fontSize: 12,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          message.message,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.86),
+            height: 1.35,
+          ),
+        ),
+      ],
     );
   }
 }

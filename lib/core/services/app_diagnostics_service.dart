@@ -8,6 +8,15 @@ class AppDiagnosticsService {
   static const int _maxEntries = 80;
   static final ListQueue<Map<String, dynamic>> _entries =
       ListQueue<Map<String, dynamic>>();
+  static final Map<String, Object?> _context = <String, Object?>{};
+
+  static void setContext(Map<String, Object?> context) {
+    _context
+      ..clear()
+      ..addAll(context);
+
+    log('Contexto de diagnostico atualizado', context: context);
+  }
 
   static void log(
     String message, {
@@ -22,6 +31,7 @@ class AppDiagnosticsService {
       'message': message,
       if (error != null) 'error': _limit('$error', 700),
       if (stackTrace != null) 'stack': _compactStack(stackTrace),
+      if (_context.isNotEmpty) 'appContext': _sanitizeMap(_context),
       if (context != null && context.isNotEmpty)
         'context': _sanitizeMap(context),
     };

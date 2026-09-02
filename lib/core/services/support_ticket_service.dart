@@ -3,6 +3,36 @@ import 'dart:convert';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
 
+import 'app_diagnostics_service.dart';
+
+class SupportMessage {
+  const SupportMessage({
+    required this.sender,
+    required this.kind,
+    required this.message,
+    required this.createdAt,
+    required this.name,
+  });
+
+  final String sender;
+  final String kind;
+  final String message;
+  final DateTime? createdAt;
+  final String name;
+
+  bool get isAdmin => sender == 'admin';
+
+  factory SupportMessage.fromJson(Map<String, dynamic> json) {
+    return SupportMessage(
+      sender: '${json['sender'] ?? 'system'}',
+      kind: '${json['kind'] ?? 'message'}',
+      message: '${json['message'] ?? ''}'.trim(),
+      createdAt: DateTime.tryParse('${json['created_at'] ?? ''}'),
+      name: '${json['name'] ?? ''}'.trim(),
+    );
+  }
+}
+
 class SupportTicket {
   const SupportTicket({
     required this.id,
@@ -16,6 +46,7 @@ class SupportTicket {
     required this.app,
     required this.device,
     required this.adminReply,
+    required this.messages,
   });
 
   final String id;
@@ -29,8 +60,22 @@ class SupportTicket {
   final Map<String, dynamic> app;
   final Map<String, dynamic> device;
   final Map<String, dynamic> adminReply;
+  final List<SupportMessage> messages;
 
   factory SupportTicket.fromJson(Map<String, dynamic> json) {
+    final adminReply = _readMap(json['admin_reply']);
+    final rawMessages = json['messages'];
+    final parsedMessages = rawMessages is List
+        ? rawMessages
+              .whereType<Map>()
+              .map(
+                (item) =>
+                    SupportMessage.fromJson(Map<String, dynamic>.from(item)),
+              )
+              .where((item) => item.message.isNotEmpty)
+              .toList()
+        : <SupportMessage>[];
+
     return SupportTicket(
       id: '${json['id'] ?? ''}',
       type: '${json['type'] ?? 'bug'}',
@@ -42,7 +87,13 @@ class SupportTicket {
       user: _readMap(json['user']),
       app: _readMap(json['app']),
       device: _readMap(json['device']),
-      adminReply: _readMap(json['admin_reply']),
+      adminReply: adminReply,
+      messages: _withLegacyMessages(
+        parsedMessages,
+        message: '${json['message'] ?? ''}',
+        createdAt: DateTime.tryParse('${json['created_at'] ?? ''}'),
+        adminReply: adminReply,
+      ),
     );
   }
 
@@ -57,6 +108,8 @@ class SupportTicket {
   String get typeLabel {
     return switch (type) {
       'wrong_chord' => 'Cifra errada',
+      'notification' => 'Notificação',
+      'update' => 'Atualização',
       'question' => 'Dúvida',
       'suggestion' => 'Sugestão',
       _ => 'Bug',
@@ -73,11 +126,22 @@ class SupportTicket {
   }
 
   String get statusLabel {
+    if (status == 'open' && hasAdminReply) return 'Respondido';
+    if (status == 'open') return 'Aguardando suporte';
+
     return switch (status) {
       'resolved' => 'Resolvido',
       'closed' => 'Fechado',
-      _ => 'Aberto',
+      _ => 'Aguardando suporte',
     };
+  }
+
+  bool get canUserResolve {
+    return hasAdminReply && status != 'closed';
+  }
+
+  bool get canUserReopen {
+    return status == 'resolved' || status == 'closed';
   }
 
   String get userName {
@@ -107,6 +171,40 @@ class SupportTicket {
     }
     return const {};
   }
+
+  static List<SupportMessage> _withLegacyMessages(
+    List<SupportMessage> messages, {
+    required String message,
+    required DateTime? createdAt,
+    required Map<String, dynamic> adminReply,
+  }) {
+    if (messages.isNotEmpty) return messages;
+
+    final result = <SupportMessage>[
+      SupportMessage(
+        sender: 'user',
+        kind: 'feedback',
+        message: message.trim(),
+        createdAt: createdAt,
+        name: '',
+      ),
+    ];
+
+    final adminReplyMessage = '${adminReply['message'] ?? ''}'.trim();
+    if (adminReplyMessage.isNotEmpty) {
+      result.add(
+        SupportMessage(
+          sender: 'admin',
+          kind: 'admin_reply',
+          message: adminReplyMessage,
+          createdAt: DateTime.tryParse('${adminReply['created_at'] ?? ''}'),
+          name: '${adminReply['responder_name'] ?? 'Suporte Cifra Band'}',
+        ),
+      );
+    }
+
+    return result;
+  }
 }
 
 class MySupportTicketsResult {
@@ -127,6 +225,8 @@ class SupportTicketService {
 
   static Future<List<SupportTicket>> fetchTickets({
     String status = 'open',
+    String type = 'all',
+    String severity = 'all',
   }) async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -134,11 +234,20 @@ class SupportTicketService {
     }
 
     final token = await user.getIdToken();
+    AppDiagnosticsService.log(
+      'Carregando tickets de suporte admin',
+      context: {'status': status, 'type': type, 'severity': severity},
+    );
     final response = await http
         .get(
           _baseUri.replace(
             path: '/support-tickets',
-            queryParameters: {'status': status, 'limit': '80'},
+            queryParameters: {
+              'status': status,
+              'type': type,
+              'severity': severity,
+              'limit': '100',
+            },
           ),
           headers: {'Authorization': 'Bearer $token'},
         )
@@ -146,6 +255,11 @@ class SupportTicketService {
 
     final decoded = _decodeBody(response.body);
     if (response.statusCode != 200) {
+      AppDiagnosticsService.log(
+        'Falha HTTP ao carregar tickets admin',
+        level: 'error',
+        context: {'statusCode': response.statusCode, 'body': response.body},
+      );
       throw StateError(_errorMessage(decoded, response.statusCode));
     }
 
@@ -165,6 +279,7 @@ class SupportTicketService {
     }
 
     final token = await user.getIdToken();
+    AppDiagnosticsService.log('Carregando meus tickets de suporte');
     final response = await http
         .get(
           _baseUri.replace(path: '/my-support-tickets'),
@@ -174,6 +289,11 @@ class SupportTicketService {
 
     final decoded = _decodeBody(response.body);
     if (response.statusCode != 200) {
+      AppDiagnosticsService.log(
+        'Falha HTTP ao carregar meus tickets',
+        level: 'error',
+        context: {'statusCode': response.statusCode, 'body': response.body},
+      );
       throw StateError(_errorMessage(decoded, response.statusCode));
     }
 
@@ -205,6 +325,10 @@ class SupportTicketService {
     }
 
     final token = await user.getIdToken();
+    AppDiagnosticsService.log(
+      'Atualizando ticket admin',
+      context: {'ticketId': ticketId, 'status': status},
+    );
     final response = await http
         .patch(
           _baseUri.replace(path: '/support-tickets/$ticketId'),
@@ -217,6 +341,48 @@ class SupportTicketService {
         .timeout(const Duration(seconds: 15));
 
     if (response.statusCode != 200) {
+      AppDiagnosticsService.log(
+        'Falha HTTP ao atualizar ticket admin',
+        level: 'error',
+        context: {'statusCode': response.statusCode, 'body': response.body},
+      );
+      throw StateError(
+        _errorMessage(_decodeBody(response.body), response.statusCode),
+      );
+    }
+  }
+
+  static Future<void> updateMyTicketStatus({
+    required String ticketId,
+    required String status,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) {
+      throw StateError('Você precisa estar logado.');
+    }
+
+    final token = await user.getIdToken();
+    AppDiagnosticsService.log(
+      'Atualizando meu ticket',
+      context: {'ticketId': ticketId, 'status': status},
+    );
+    final response = await http
+        .patch(
+          _baseUri.replace(path: '/my-support-tickets/$ticketId'),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'status': status}),
+        )
+        .timeout(const Duration(seconds: 15));
+
+    if (response.statusCode != 200) {
+      AppDiagnosticsService.log(
+        'Falha HTTP ao atualizar meu ticket',
+        level: 'error',
+        context: {'statusCode': response.statusCode, 'body': response.body},
+      );
       throw StateError(
         _errorMessage(_decodeBody(response.body), response.statusCode),
       );

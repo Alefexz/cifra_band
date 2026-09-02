@@ -29,6 +29,18 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
       severity: 'critical',
     ),
     _FeedbackOption(
+      value: 'notification',
+      label: 'Notificação',
+      icon: Icons.notifications_off_rounded,
+      severity: 'high',
+    ),
+    _FeedbackOption(
+      value: 'update',
+      label: 'Atualização',
+      icon: Icons.system_update_alt_rounded,
+      severity: 'high',
+    ),
+    _FeedbackOption(
       value: 'question',
       label: 'Dúvida',
       icon: Icons.help_rounded,

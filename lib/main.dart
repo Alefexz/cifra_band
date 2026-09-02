@@ -4,6 +4,8 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart'; // ⚠️ NOVO IMPORT DO MOTOR DE NOTIFICAÇÕES
@@ -109,15 +111,63 @@ class _StartupHooks extends StatefulWidget {
 class _StartupHooksState extends State<_StartupHooks>
     with WidgetsBindingObserver {
   static const int _maxUpdateCheckAttempts = 8;
+  StreamSubscription<User?>? _authSubscription;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _authSubscription = FirebaseAuth.instance.authStateChanges().listen(
+      _syncCrashContext,
+    );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForUpdateWhenNavigatorIsReady();
     });
+  }
+
+  Future<void> _syncCrashContext(User? user) async {
+    try {
+      if (user == null) {
+        await FirebaseCrashlytics.instance.setUserIdentifier('');
+        await FirebaseCrashlytics.instance.setCustomKey('uid', '');
+        await FirebaseCrashlytics.instance.setCustomKey('church_id', '');
+        await FirebaseCrashlytics.instance.setCustomKey('is_admin', false);
+        AppDiagnosticsService.setContext({'auth': 'signed_out'});
+        return;
+      }
+
+      final userDoc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get();
+      final userData = userDoc.data() ?? const <String, dynamic>{};
+      final churchId = '${userData['church_id'] ?? ''}'.trim();
+      final isAdmin = userData['is_admin'] == true;
+
+      await FirebaseCrashlytics.instance.setUserIdentifier(user.uid);
+      await FirebaseCrashlytics.instance.setCustomKey('uid', user.uid);
+      await FirebaseCrashlytics.instance.setCustomKey('church_id', churchId);
+      await FirebaseCrashlytics.instance.setCustomKey('is_admin', isAdmin);
+      await FirebaseCrashlytics.instance.setCustomKey(
+        'user_email',
+        user.email ?? '',
+      );
+
+      AppDiagnosticsService.setContext({
+        'uid': user.uid,
+        'email': user.email,
+        'church_id': churchId,
+        'is_admin': isAdmin,
+      });
+    } catch (error, stackTrace) {
+      AppDiagnosticsService.log(
+        'Falha ao sincronizar contexto de diagnostico',
+        level: 'warning',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   void _checkForUpdateWhenNavigatorIsReady([int attempt = 0]) {
@@ -151,6 +201,7 @@ class _StartupHooksState extends State<_StartupHooks>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _authSubscription?.cancel();
     super.dispose();
   }
 
