@@ -195,6 +195,7 @@ class _StartupHooksState extends State<_StartupHooks>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       BackendWarmupService.wake(reason: 'app_resumed');
+      _checkForUpdateWhenNavigatorIsReady();
     }
   }
 

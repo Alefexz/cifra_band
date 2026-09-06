@@ -57,7 +57,17 @@ class AppUpdateInfo {
 class AppUpdateService {
   static const String _versionUrl =
       'https://cifraband-api.onrender.com/app-version';
-  static const Duration _timeout = Duration(seconds: 10);
+  static const Duration _timeout = Duration(seconds: 25);
+  static const List<Duration> _retryDelays = [
+    Duration.zero,
+    Duration(seconds: 6),
+    Duration(seconds: 15),
+    Duration(seconds: 30),
+  ];
+  static const Map<String, String> _requestHeaders = {
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+  };
   static const MethodChannel _apkInstallerChannel = MethodChannel(
     'cifra_band/apk_installer',
   );
@@ -84,7 +94,8 @@ class AppUpdateService {
         },
       );
 
-      final response = await http.get(Uri.parse(_versionUrl)).timeout(_timeout);
+      final response = await _fetchVersionWithRetry();
+      if (response == null) return;
 
       if (response.statusCode != 200) {
         debugPrint('Falha ao consultar versão do app: ${response.statusCode}');
@@ -100,6 +111,7 @@ class AppUpdateService {
       if (decoded is! Map<String, dynamic>) return;
 
       final updateInfo = AppUpdateInfo.fromJson(decoded);
+
       debugPrint(
         'Versao remota: ${updateInfo.latestVersion}+${updateInfo.latestBuild}',
       );
@@ -150,6 +162,57 @@ class AppUpdateService {
     } finally {
       _checking = false;
     }
+  }
+
+  static Future<http.Response?> _fetchVersionWithRetry() async {
+    Object? lastError;
+
+    for (var attempt = 0; attempt < _retryDelays.length; attempt++) {
+      final delay = _retryDelays[attempt];
+      if (delay > Duration.zero) {
+        await Future<void>.delayed(delay);
+      }
+
+      try {
+        debugPrint(
+          'Consultando versao do app no Render: tentativa ${attempt + 1}/${_retryDelays.length}',
+        );
+        final response = await http
+            .get(Uri.parse(_versionUrl), headers: _requestHeaders)
+            .timeout(_timeout);
+
+        if (response.statusCode == 200) return response;
+        if (response.statusCode < 500) return response;
+
+        lastError = HttpException(
+          'Render respondeu HTTP ${response.statusCode}.',
+        );
+        AppDiagnosticsService.log(
+          'Render ainda indisponivel para versao do app',
+          level: 'warning',
+          context: {'attempt': attempt + 1, 'statusCode': response.statusCode},
+        );
+      } on TimeoutException catch (error) {
+        lastError = error;
+        AppDiagnosticsService.log(
+          'Timeout ao consultar versao do app',
+          level: 'warning',
+          error: error,
+          context: {'attempt': attempt + 1},
+        );
+      } on SocketException catch (error) {
+        lastError = error;
+        AppDiagnosticsService.log(
+          'Falha de rede ao consultar versao do app',
+          level: 'warning',
+          error: error,
+          context: {'attempt': attempt + 1},
+        );
+      }
+    }
+
+    debugPrint('Versao do app indisponivel depois dos retries: $lastError');
+    return null;
   }
 
   static Future<void> _showUpdateDialog({

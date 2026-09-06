@@ -167,6 +167,62 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/schedules/$(scheduleId)).data.church_id;
     }
 
+    function isSetlistOwner() {
+      return signedIn()
+        && (
+          resource.data.ownerId == request.auth.uid
+          || resource.data.get('userId', '') == request.auth.uid
+        );
+    }
+
+    function isSetlistSharedMember() {
+      return signedIn()
+        && resource.data.get('sharedWith', []) is list
+        && request.auth.uid in resource.data.get('sharedWith', []);
+    }
+
+    function canReadSetlist() {
+      return isSetlistOwner() || isSetlistSharedMember();
+    }
+
+    function validSetlistCreate() {
+      return signedIn()
+        && request.resource.data.keys().hasOnly([
+          'title',
+          'ownerId',
+          'sharedWith',
+          'songIds',
+          'updatedAt'
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.ownerId == request.auth.uid
+        && request.resource.data.sharedWith is list
+        && request.resource.data.songIds is list;
+    }
+
+    function setlistIdentityUnchanged() {
+      return request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.get('userId', '') == resource.data.get('userId', '');
+    }
+
+    function ownerSetlistUpdate() {
+      return isSetlistOwner()
+        && setlistIdentityUnchanged()
+        && affectedOnly(['title', 'sharedWith', 'songIds', 'updatedAt'])
+        && request.resource.data.title is string
+        && request.resource.data.sharedWith is list
+        && request.resource.data.songIds is list;
+    }
+
+    function sharedSetlistSongUpdate() {
+      return isSetlistSharedMember()
+        && setlistIdentityUnchanged()
+        && request.resource.data.title == resource.data.title
+        && request.resource.data.sharedWith == resource.data.sharedWith
+        && affectedOnly(['songIds', 'updatedAt'])
+        && request.resource.data.songIds is list;
+    }
+
     match /users/{userId} {
       allow read: if signedIn() && canReadUser(userId);
       allow create: if validNewUser(userId);
@@ -253,19 +309,10 @@ service cloud.firestore {
     }
 
     match /setlists/{setlistId} {
-      allow read: if signedIn()
-        && (
-          resource.data.ownerId == request.auth.uid
-          || request.auth.uid in resource.data.sharedWith
-        );
-      allow create: if signedIn()
-        && request.resource.data.ownerId == request.auth.uid;
-      allow update: if signedIn()
-        && (
-          resource.data.ownerId == request.auth.uid
-          || request.auth.uid in resource.data.sharedWith
-        );
-      allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+      allow read: if canReadSetlist();
+      allow create: if validSetlistCreate();
+      allow update: if ownerSetlistUpdate() || sharedSetlistSongUpdate();
+      allow delete: if isSetlistOwner();
     }
 
     match /songs/{songId} {

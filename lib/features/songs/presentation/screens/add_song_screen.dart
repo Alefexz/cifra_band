@@ -253,30 +253,34 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
         );
         context.pop();
       } else {
-        final songDocRef = await FirebaseFirestore.instance
-            .collection('songs')
-            .add({
-              'title': song.title,
-              'artist': song.artist,
-              'key': _selectedKey,
-              'originalKey': song.originalKey,
-              'shapeKey': song.shapeKey,
-              'capo': _selectedCapo,
-              'content': song.content,
-              'url': song.url,
-              'referenceUrl': _referenceUrlController.text.trim(),
-              'bpm': _bpmController.text.trim(),
-              'rehearsalNotes': _rehearsalNotesController.text.trim(),
-              'created_by': currentUser.uid,
-              'created_at': FieldValue.serverTimestamp(),
-            });
-
-        await FirebaseFirestore.instance
+        final firestore = FirebaseFirestore.instance;
+        final songDocRef = firestore.collection('songs').doc();
+        final setlistRef = firestore
             .collection('setlists')
-            .doc(widget.setlistId)
-            .update({
-              'songIds': FieldValue.arrayUnion([songDocRef.id]),
-            });
+            .doc(widget.setlistId);
+        final batch = firestore.batch();
+
+        batch.set(songDocRef, {
+          'title': song.title,
+          'artist': song.artist,
+          'key': _selectedKey,
+          'originalKey': song.originalKey,
+          'shapeKey': song.shapeKey,
+          'capo': _selectedCapo,
+          'content': song.content,
+          'url': song.url,
+          'referenceUrl': _referenceUrlController.text.trim(),
+          'bpm': _bpmController.text.trim(),
+          'rehearsalNotes': _rehearsalNotesController.text.trim(),
+          'created_by': currentUser.uid,
+          'created_at': FieldValue.serverTimestamp(),
+        });
+        batch.update(setlistRef, {
+          'songIds': FieldValue.arrayUnion([songDocRef.id]),
+          'updatedAt': DateTime.now().millisecondsSinceEpoch,
+        });
+
+        await batch.commit();
 
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
