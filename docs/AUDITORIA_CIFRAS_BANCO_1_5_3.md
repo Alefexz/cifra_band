@@ -75,3 +75,14 @@ Arquivos centrais: lib/features/songs/presentation/screens/add_song_screen.dart,
 ## Publicacao
 
 Versao 1.5.3, build 21; minimo 21 por se tratar de correcao de falha critica. APK destinado ao GitHub Release v1.5.3, com link direto de download. Conferir identidade do pacote, versionCode, certificado e SHA-256 antes de anunciar pelo /app-version. A publicacao do backend deve acontecer somente depois de o APK estar acessivel.
+
+Publicacao concluida em 10/09/2026:
+
+- App: commit 5ab364b, tag v1.5.3, Release publicado com APK de 67.199.294 bytes.
+- Backend: commit 88f3449 enviado ao cifraband-api; Render confirmou latestBuild=21, minimumBuild=21 e updateRequired=true em 2026-09-10T18:14:48.833Z.
+- Download publico verificado com HTTP 200: https://github.com/Alefexz/cifra_band/releases/download/v1.5.3/cifra-band-1.5.3-build-21.apk
+- SHA-256 do APK e do asset no GitHub: 78d5715587bfdf2dcb1b5eeeb321b00e84657cd1ae28e133a05a6d0384d9495a.
+- Pacote br.com.cifraband.cifra_band, versionName 1.5.3, versionCode 21; certificado identico ao APK 1.5.2 do beta.
+- Regras Firestore publicadas com sucesso. Busca de producao sem token continuou bloqueada com HTTP 401.
+- 40 testes automatizados passaram: 22 Flutter, 7 Node e 11 Firestore.
+- Nova auditoria apos o deploy: 258 cifras globais, oito musicas e seis setlists; nenhuma cifra global sem letra/acordes suficientes segundo o validador.
