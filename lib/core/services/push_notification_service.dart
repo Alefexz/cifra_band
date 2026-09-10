@@ -1,6 +1,7 @@
 // lib/core/services/push_notification_service.dart
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -8,6 +9,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 
 class PushNotificationService {
   static final FirebaseMessaging _messaging = FirebaseMessaging.instance;
@@ -25,6 +28,75 @@ class PushNotificationService {
   static bool _localNotificationsReady = false;
   static bool _foregroundListenerReady = false;
   static StreamSubscription<String>? _tokenRefreshSubscription;
+  static Future<void>? _versionRegistration;
+  static String? _registeredVersionKey;
+  static DateTime? _registeredVersionAt;
+
+  static Future<void> syncInstalledVersion() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    if (_versionRegistration != null) return _versionRegistration;
+    final pending = _syncInstalledVersion();
+    _versionRegistration = pending;
+    try {
+      await pending;
+    } finally {
+      _versionRegistration = null;
+    }
+  }
+
+  static Future<void> _syncInstalledVersion() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      final token = await _messaging.getToken();
+      if (token == null || token.isEmpty) return;
+      final package = await PackageInfo.fromPlatform();
+      final build = int.tryParse(package.buildNumber);
+      if (build == null) return;
+      final key = '${user.uid}:$token:$build';
+      if (_registeredVersionKey == key &&
+          _registeredVersionAt != null &&
+          DateTime.now().difference(_registeredVersionAt!) <
+              const Duration(hours: 6)) {
+        return;
+      }
+      for (final delay in [0, 6, 15]) {
+        if (delay > 0) await Future<void>.delayed(Duration(seconds: delay));
+        if (FirebaseAuth.instance.currentUser?.uid != user.uid) return;
+        try {
+          final idToken = await user.getIdToken();
+          if (idToken == null) return;
+          final response = await http
+              .post(
+                Uri.https('cifraband-api.onrender.com', '/devices/register'),
+                headers: {
+                  'Authorization': 'Bearer $idToken',
+                  'Content-Type': 'application/json',
+                },
+                body: jsonEncode({
+                  'token': token,
+                  'build': build,
+                  'platform': 'android',
+                }),
+              )
+              .timeout(const Duration(seconds: 25));
+          if (response.statusCode == 200) {
+            _registeredVersionKey = key;
+            _registeredVersionAt = DateTime.now();
+            return;
+          }
+          if (response.statusCode >= 400 && response.statusCode < 500) return;
+        } catch (_) {
+          // A sleeping backend may need more than one attempt.
+        }
+      }
+      debugPrint(
+        '[Push] Registro da versão pendente; será tentado na próxima abertura.',
+      );
+    } catch (error) {
+      debugPrint('[Push] Não foi possível registrar a versão: $error');
+    }
+  }
 
   static Future<void> registerDevice() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -135,6 +207,7 @@ class PushNotificationService {
       debugPrint(
         '[Push] Token FCM registrado com sucesso para $uid: ${_maskToken(token)}',
       );
+      unawaited(syncInstalledVersion());
     } catch (e, stackTrace) {
       debugPrint('[Push] Falha ao salvar token FCM no Firestore: $e');
       debugPrintStack(stackTrace: stackTrace);
@@ -167,6 +240,7 @@ class PushNotificationService {
     if (_foregroundListenerReady) return;
 
     FirebaseMessaging.onMessage.listen((message) async {
+      if (message.data['type'] == 'app_update_available') return;
       final notification = message.notification;
       final android = notification?.android;
 

@@ -10,7 +10,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_diagnostics_service.dart';
-import 'push_notification_service.dart';
 
 class AppUpdateInfo {
   const AppUpdateInfo({
@@ -120,17 +119,6 @@ class AppUpdateService {
       if (updateInfo.apkUrl.isEmpty) return;
       if (!context.mounted) return;
 
-      unawaited(
-        PushNotificationService.showLocalNotification(
-          title: 'Nova atualização disponível',
-          body:
-              'Cifra Band ${updateInfo.latestVersion}+${updateInfo.latestBuild} já pode ser instalada.',
-          data: {
-            'type': 'app_update_available',
-            'latestBuild': '${updateInfo.latestBuild}',
-          },
-        ),
-      );
       AppDiagnosticsService.log(
         'Atualizacao disponivel',
         context: {

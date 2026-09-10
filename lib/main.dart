@@ -14,6 +14,7 @@ import 'core/theme/app_theme.dart';
 import 'config/routes/app_router.dart';
 import 'core/services/app_diagnostics_service.dart';
 import 'core/services/app_update_service.dart';
+import 'core/services/push_notification_service.dart';
 import 'core/services/backend_warmup_service.dart';
 import 'firebase_options.dart';
 
@@ -112,11 +113,19 @@ class _StartupHooksState extends State<_StartupHooks>
     with WidgetsBindingObserver {
   static const int _maxUpdateCheckAttempts = 8;
   StreamSubscription<User?>? _authSubscription;
+  StreamSubscription<RemoteMessage>? _updateMessageSubscription;
+  StreamSubscription<RemoteMessage>? _updateOpenedSubscription;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _updateMessageSubscription = FirebaseMessaging.onMessage.listen(
+      _onUpdateMessage,
+    );
+    _updateOpenedSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
+      _onUpdateMessage,
+    );
     _authSubscription = FirebaseAuth.instance.authStateChanges().listen(
       _syncCrashContext,
     );
@@ -127,6 +136,7 @@ class _StartupHooksState extends State<_StartupHooks>
   }
 
   Future<void> _syncCrashContext(User? user) async {
+    if (user != null) unawaited(PushNotificationService.syncInstalledVersion());
     try {
       if (user == null) {
         await FirebaseCrashlytics.instance.setUserIdentifier('');
@@ -170,6 +180,12 @@ class _StartupHooksState extends State<_StartupHooks>
     }
   }
 
+  void _onUpdateMessage(RemoteMessage message) {
+    if (message.data['type'] == 'app_update_available') {
+      _checkForUpdateWhenNavigatorIsReady();
+    }
+  }
+
   void _checkForUpdateWhenNavigatorIsReady([int attempt = 0]) {
     if (!mounted) return;
 
@@ -194,6 +210,7 @@ class _StartupHooksState extends State<_StartupHooks>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      unawaited(PushNotificationService.syncInstalledVersion());
       BackendWarmupService.wake(reason: 'app_resumed');
       _checkForUpdateWhenNavigatorIsReady();
     }
@@ -203,6 +220,8 @@ class _StartupHooksState extends State<_StartupHooks>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _authSubscription?.cancel();
+    _updateMessageSubscription?.cancel();
+    _updateOpenedSubscription?.cancel();
     super.dispose();
   }
 
