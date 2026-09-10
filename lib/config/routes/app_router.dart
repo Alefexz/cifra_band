@@ -1,6 +1,7 @@
 // lib/config/routes/app_router.dart
 
 import 'package:flutter/material.dart';
+import 'package:cifra_band/features/songs/domain/entities/song_destination.dart';
 import 'package:go_router/go_router.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
@@ -188,7 +189,8 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/add-song',
       pageBuilder: (context, state) {
-        if (state.extra is! String || (state.extra as String).isEmpty) {
+        if (state.extra is! SongDestination ||
+            (state.extra as SongDestination).id.isEmpty) {
           return _buildFadeTransition(
             context,
             state,
@@ -199,11 +201,11 @@ final appRouter = GoRouter(
             ),
           );
         }
-        final setlistId = state.extra as String;
+        final destination = state.extra as SongDestination;
         return _buildFadeTransition(
           context,
           state,
-          AddSongScreen(setlistId: setlistId),
+          AddSongScreen(destination: destination),
         );
       },
     ),

@@ -1,6 +1,7 @@
 // lib/features/home/presentation/screens/search_screen.dart
 
 import 'dart:async';
+import 'package:cifra_band/features/songs/domain/song_content_quality.dart';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -246,7 +247,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final artist = _displayArtist(song);
     final content = song['content']?.toString() ?? '';
     if (track.trim().isEmpty || artist.trim().isEmpty) return;
-    if (song['isCachedCifra'] == true && content.trim().length < 80) return;
+    if (song['isCachedCifra'] == true && !SongContentQuality.hasLyrics(content))
+      return;
 
     final key =
         '${_normalizeForDiscovery(artist)}|${_normalizeForDiscovery(track)}';
@@ -634,7 +636,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   void _openDiscoverySong(Map<String, dynamic> song) {
     final content = song['content']?.toString() ?? '';
 
-    if (song['isCachedCifra'] == true && content.trim().length >= 80) {
+    if (song['isCachedCifra'] == true &&
+        SongContentQuality.hasLyrics(content)) {
       final songEntity = SongEntity(
         id: song['cacheId']?.toString() ?? _displayTrack(song),
         title: _displayTrack(song),

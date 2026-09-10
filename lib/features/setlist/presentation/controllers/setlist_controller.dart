@@ -1,6 +1,7 @@
 // lib/features/setlist/presentation/controllers/setlist_controller.dart
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cifra_band/features/home/presentation/providers/home_providers.dart';
 import '../../domain/entities/setlist_entity.dart';
 import '../providers/setlist_providers.dart';
 
@@ -9,6 +10,8 @@ import '../providers/setlist_providers.dart';
 class SetlistController extends AsyncNotifier<List<SetlistEntity>> {
   @override
   Future<List<SetlistEntity>> build() async {
+    final user = ref.watch(authUserProvider).value;
+    if (user == null) return [];
     // Quando a tela carregar, ele busca as setlists automaticamente
     return _fetchSetlists();
   }

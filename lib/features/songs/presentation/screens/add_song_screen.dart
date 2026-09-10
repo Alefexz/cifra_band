@@ -9,12 +9,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:cifra_band/core/services/api_notification.dart';
+import 'package:cifra_band/core/services/app_diagnostics_service.dart';
+import '../../domain/entities/song_destination.dart';
+import '../../domain/song_content_quality.dart';
+import '../../domain/song_arrangement.dart';
+import '../../domain/transposer_engine.dart';
 import '../../../songs/domain/entities/song_entity.dart';
 import '../../../songs/presentation/providers/song_providers.dart';
 
 class AddSongScreen extends ConsumerStatefulWidget {
-  final String setlistId;
-  const AddSongScreen({super.key, required this.setlistId});
+  final SongDestination destination;
+  const AddSongScreen({super.key, required this.destination});
 
   @override
   ConsumerState<AddSongScreen> createState() => _AddSongScreenState();
@@ -54,6 +59,7 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
     'A#',
     'Bb',
     'B',
+    ...TransposerEngine.minorToneOptions,
   ];
   final List<String> _capoOptions = [
     '0',
@@ -150,8 +156,12 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
       setState(() {
         _songReady = songEntity;
         _loadingTrack = null;
+        _referenceUrlController.text = songEntity.referenceUrl ?? '';
 
-        if (_musicalKeys.contains(songEntity.originalKey)) {
+        if (RegExp(r'^[A-G][#b]?m?$').hasMatch(songEntity.originalKey)) {
+          if (!_musicalKeys.contains(songEntity.originalKey)) {
+            _musicalKeys.add(songEntity.originalKey);
+          }
           _selectedKey = songEntity.originalKey;
         } else {
           _selectedKey = 'C';
@@ -178,7 +188,7 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
 
   Future<void> _addToSetlistOrSchedule() async {
     final song = _songReady;
-    if (song == null) return;
+    if (song == null || _isSaving) return;
 
     if (!mounted) return;
     setState(() => _isSaving = true);
@@ -186,28 +196,33 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
     try {
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) throw Exception('Usuário não logado');
+      SongContentQuality.requireLyrics(song.content);
+      final arrangement = SongArrangement.prepare(
+        song: song,
+        key: _selectedKey,
+        capo: _selectedCapo,
+      );
 
-      final scheduleDoc = await FirebaseFirestore.instance
-          .collection('schedules')
-          .doc(widget.setlistId)
-          .get();
-
-      if (scheduleDoc.exists) {
+      if (widget.destination.isSchedule) {
+        final scheduleDoc = await FirebaseFirestore.instance
+            .collection('schedules')
+            .doc(widget.destination.id)
+            .get();
+        if (!scheduleDoc.exists) throw StateError('Escala não encontrada.');
         final userDoc = await FirebaseFirestore.instance
             .collection('users')
             .doc(currentUser.uid)
             .get();
         final userName = userDoc.data()?['name'] ?? 'Membro';
 
-        // ⚠️ AQUI ESTÁ A CORREÇÃO: AGORA ELE SALVA A CIFRA (CONTENT) JUNTO COM OS VOTOS
         final songMap = {
           'title': song.title,
           'artist': song.artist,
           'key': _selectedKey,
           'capo': _selectedCapo,
-          'originalKey': song.originalKey,
-          'shapeKey': song.shapeKey,
-          'content': song.content, // A CIFRA SALVA AQUI!
+          'originalKey': arrangement.key,
+          'shapeKey': arrangement.shapeKey,
+          'content': arrangement.content,
           'url': song.url,
           'referenceUrl': _referenceUrlController.text.trim(),
           'bpm': _bpmController.text.trim(),
@@ -219,7 +234,7 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
 
         await FirebaseFirestore.instance
             .collection('schedules')
-            .doc(widget.setlistId)
+            .doc(widget.destination.id)
             .update({
               'suggested_songs': FieldValue.arrayUnion([songMap]),
             });
@@ -237,12 +252,20 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
             .toSet()
             .toList();
 
-        await ApiNotification.notificarMusicaNova(
-          teamUids,
-          song.title,
-          userName,
-          widget.setlistId,
-        );
+        try {
+          await ApiNotification.notificarMusicaNova(
+            teamUids,
+            song.title,
+            userName,
+            widget.destination.id,
+          );
+        } catch (error) {
+          AppDiagnosticsService.log(
+            'Sugestão salva; notificação falhou',
+            level: 'warning',
+            error: error,
+          );
+        }
 
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
@@ -257,17 +280,17 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
         final songDocRef = firestore.collection('songs').doc();
         final setlistRef = firestore
             .collection('setlists')
-            .doc(widget.setlistId);
+            .doc(widget.destination.id);
         final batch = firestore.batch();
 
         batch.set(songDocRef, {
           'title': song.title,
           'artist': song.artist,
           'key': _selectedKey,
-          'originalKey': song.originalKey,
-          'shapeKey': song.shapeKey,
+          'originalKey': arrangement.key,
+          'shapeKey': arrangement.shapeKey,
           'capo': _selectedCapo,
-          'content': song.content,
+          'content': arrangement.content,
           'url': song.url,
           'referenceUrl': _referenceUrlController.text.trim(),
           'bpm': _bpmController.text.trim(),
@@ -292,10 +315,25 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
         context.pop();
       }
     } catch (e) {
+      AppDiagnosticsService.log(
+        'Falha ao salvar cifra no repertório',
+        level: 'error',
+        error: e,
+        context: {
+          'destinationId': widget.destination.id,
+          'destinationType': widget.destination.type.name,
+          'artist': song.artist,
+          'track': song.title,
+        },
+      );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Erro ao salvar música:\n$e'),
+          content: Text(
+            e is FirebaseException && e.code == 'permission-denied'
+                ? 'Não foi possível salvar: sua conta não tem permissão neste repertório. Volte e abra a setlist ou escala novamente.'
+                : 'Não foi possível salvar a música: $e',
+          ),
           backgroundColor: Colors.redAccent,
         ),
       );
@@ -782,7 +820,13 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
                 child: _buildDropdown(
                   label: 'Qual o Tom?',
                   value: _selectedKey,
-                  items: _musicalKeys,
+                  items: _musicalKeys
+                      .where(
+                        (key) =>
+                            TransposerEngine.isMinorKey(key) ==
+                            TransposerEngine.isMinorKey(song.originalKey),
+                      )
+                      .toList(),
                   onChanged: (val) => setState(() => _selectedKey = val!),
                 ),
               ),
@@ -875,7 +919,11 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
                 child: Text(
-                  song.content,
+                  SongArrangement.prepare(
+                    song: song,
+                    key: _selectedKey,
+                    capo: _selectedCapo,
+                  ).content,
                   style: const TextStyle(
                     color: Colors.white,
                     fontFamily: 'monospace',
@@ -908,7 +956,11 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
                   )
                 : const Icon(Icons.check_circle_rounded),
             label: Text(
-              _isSaving ? 'Salvando...' : 'Confirmar e Sugerir',
+              _isSaving
+                  ? 'Salvando...'
+                  : widget.destination.isSchedule
+                  ? 'Sugerir para a escala'
+                  : 'Adicionar à setlist',
               style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
           ),

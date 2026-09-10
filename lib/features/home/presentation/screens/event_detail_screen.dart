@@ -1,6 +1,7 @@
 // lib/features/home/presentation/screens/event_detail_screen.dart
 
 import 'dart:io';
+import 'package:cifra_band/features/songs/domain/entities/song_destination.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1132,7 +1133,10 @@ class _EventDetailScreenState extends State<EventDetailScreen>
 
           floatingActionButton: FloatingActionButton.extended(
             onPressed: () {
-              context.push('/add-song', extra: widget.scheduleId);
+              context.push(
+                '/add-song',
+                extra: SongDestination.schedule(widget.scheduleId),
+              );
             },
             backgroundColor: Colors.blueAccent,
             icon: const Icon(Icons.add_rounded, color: Colors.white),

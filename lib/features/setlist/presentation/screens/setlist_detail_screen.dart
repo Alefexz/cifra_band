@@ -1,6 +1,7 @@
 // lib/features/setlist/presentation/screens/setlist_detail_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:cifra_band/features/songs/domain/entities/song_destination.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -21,6 +22,28 @@ class SetlistDetailScreen extends ConsumerStatefulWidget {
 
 class _SetlistDetailScreenState extends ConsumerState<SetlistDetailScreen> {
   bool _isDeleting = false;
+
+  Widget _loadFailure(String message) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: Colors.white),
+          ),
+          const SizedBox(height: 16),
+          TextButton.icon(
+            onPressed: () => setState(() {}),
+            icon: const Icon(Icons.refresh),
+            label: const Text('Tentar novamente'),
+          ),
+        ],
+      ),
+    ),
+  );
 
   Future<void> _deleteSetlist() async {
     final messenger = ScaffoldMessenger.of(context);
@@ -430,6 +453,11 @@ class _SetlistDetailScreenState extends ConsumerState<SetlistDetailScreen> {
                   .doc(widget.setlist.id)
                   .snapshots(),
               builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return _loadFailure(
+                    'Não foi possível carregar esta setlist. Verifique a conexão e o compartilhamento.',
+                  );
+                }
                 if (!snapshot.hasData)
                   return const Center(
                     child: CircularProgressIndicator(color: Colors.blueAccent),
@@ -480,6 +508,11 @@ class _SetlistDetailScreenState extends ConsumerState<SetlistDetailScreen> {
                 >(
                   future: _fetchSongsByIds(songIds),
                   builder: (context, futureSnapshot) {
+                    if (futureSnapshot.hasError) {
+                      return _loadFailure(
+                        'Não foi possível carregar as músicas. Verifique a conexão e tente novamente.',
+                      );
+                    }
                     if (!futureSnapshot.hasData)
                       return const Center(
                         child: CircularProgressIndicator(
@@ -547,6 +580,9 @@ class _SetlistDetailScreenState extends ConsumerState<SetlistDetailScreen> {
                                 content: songData['content'] ?? '',
                                 capo: songData['capo'] ?? '',
                                 shapeKey: songData['shapeKey'] ?? '',
+                                referenceUrl: songData['referenceUrl'],
+                                bpm: songData['bpm']?.toString(),
+                                rehearsalNotes: songData['rehearsalNotes'],
                                 url: songData['url'] ?? '',
                               );
                               context.push('/cifra', extra: songModel);
@@ -563,7 +599,10 @@ class _SetlistDetailScreenState extends ConsumerState<SetlistDetailScreen> {
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => context.push('/add-song', extra: widget.setlist.id),
+        onPressed: () => context.push(
+          '/add-song',
+          extra: SongDestination.setlist(widget.setlist.id),
+        ),
         backgroundColor: Colors.blueAccent,
         icon: const Icon(Icons.add_rounded, color: Colors.white),
         label: const Text(

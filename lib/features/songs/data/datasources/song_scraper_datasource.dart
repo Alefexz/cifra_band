@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 
 import '../../../../core/services/app_diagnostics_service.dart';
 import '../../domain/transposer_engine.dart';
+import '../../domain/song_content_quality.dart';
 import '../models/song_model.dart';
 
 class SongSearchException implements Exception {
@@ -76,7 +77,7 @@ class SongScraperDatasource {
     // loga e segue como se fosse cache miss.
     try {
       debugPrint('🔍 Verificando cache global: $docId');
-      final snapshot = await docRef.get();
+      final snapshot = await docRef.get().timeout(const Duration(seconds: 5));
 
       if (snapshot.exists) {
         debugPrint('⚡ Encontrada no cache global — resposta instantânea.');
@@ -86,6 +87,7 @@ class SongScraperDatasource {
         final shapeKey = _normalizeKey(_clean(data['shapeKey']));
         final capo = _normalizeCapo(_clean(data['capo']));
         final content = _clean(data['content']);
+        SongContentQuality.requireLyrics(content);
         final resolvedShapeKey = TransposerEngine.resolveShapeKey(
           originalKey: originalKey,
           shapeKey: shapeKey,
@@ -167,6 +169,7 @@ class SongScraperDatasource {
       final String shapeKey = _normalizeKey(_clean(decoded['shapeKey']));
       final String capo = _normalizeCapo(_clean(decoded['capo']));
       final String content = _clean(decoded['content']);
+      SongContentQuality.requireLyrics(content);
       final String url = _clean(decoded['url']);
       final String referenceUrl = _clean(decoded['referenceUrl']);
       final String resolvedShapeKey = TransposerEngine.resolveShapeKey(

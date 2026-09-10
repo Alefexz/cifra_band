@@ -15,6 +15,8 @@ import 'package:cifra_band/core/services/played_history_service.dart';
 import 'package:cifra_band/core/services/song_annotation_service.dart';
 import '../../data/models/song_model.dart';
 import '../../domain/transposer_engine.dart';
+import '../../domain/song_content_quality.dart';
+import '../../data/datasources/song_scraper_datasource.dart';
 
 class CifraScreen extends StatefulWidget {
   final SongModel song;
@@ -55,7 +57,32 @@ class _CifraScreenState extends State<CifraScreen> {
 
   double _fontSize = 16.0;
   bool _showChords = true;
-  bool _showTabs = true;
+  bool _showTabs = false;
+  bool _repairingContent = false;
+
+  Future<void> _findCompleteVersion() async {
+    if (_repairingContent) return;
+    setState(() => _repairingContent = true);
+    try {
+      final uri = Uri.https('cifraband-api.onrender.com', '/searchSong', {
+        'artist': widget.song.artist,
+        'track': widget.song.title,
+      });
+      final complete = await SongScraperDatasource().extractSongFromUrl(
+        uri.toString(),
+      );
+      if (mounted) context.push('/cifra', extra: complete);
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Não foi possível carregar outra versão: $error'),
+          ),
+        );
+    } finally {
+      if (mounted) setState(() => _repairingContent = false);
+    }
+  }
 
   final ScrollController _scrollController = ScrollController();
   Timer? _scrollTimer;
@@ -2350,10 +2377,39 @@ class _CifraScreenState extends State<CifraScreen> {
   Widget _buildRichCifra() {
     final lines = _displayedContent.split('\n');
     final widgets = <Widget>[];
+    if (!SongContentQuality.hasLyrics(_safeContent)) {
+      widgets.add(
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Esta versão salva contém pouca ou nenhuma letra.',
+                style: TextStyle(color: _primaryText),
+              ),
+              TextButton.icon(
+                onPressed: _repairingContent ? null : _findCompleteVersion,
+                icon: const Icon(Icons.refresh),
+                label: Text(
+                  _repairingContent ? 'Buscando...' : 'Buscar versão com letra',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     var sectionIndex = 0;
 
     for (var lineIndex = 0; lineIndex < lines.length; lineIndex++) {
       final line = lines[lineIndex];
+      if (!_showTabs &&
+          RegExp(
+            r'^(?:\[Tab\b|Parte\s+\d+\s+de\s+\d+)',
+            caseSensitive: false,
+          ).hasMatch(line.trim()))
+        continue;
       if (line.trim().isEmpty) {
         widgets.add(SizedBox(height: _fontSize * 0.95));
         continue;
