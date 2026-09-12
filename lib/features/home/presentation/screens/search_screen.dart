@@ -14,15 +14,28 @@ import 'package:cifra_band/features/songs/data/datasources/song_scraper_datasour
 import 'package:cifra_band/features/songs/domain/entities/song_entity.dart';
 import 'package:cifra_band/features/songs/presentation/providers/song_providers.dart';
 import '../widgets/logo_loader.dart';
+import '../../data/music_search_service.dart';
+import '../../domain/music_search_ranking.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key});
+  const SearchScreen({
+    super.key,
+    this.searchService,
+    this.loadDiscovery = true,
+  });
+  final MusicSearchService? searchService;
+  final bool loadDiscovery;
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
 }
 
 class _SearchScreenState extends ConsumerState<SearchScreen> {
   final TextEditingController _searchController = TextEditingController();
+  late final MusicSearchService _searchService;
+  String? _searchError;
+  bool _isLoadingArtist = false;
+  String? _artistError;
+  int _artistRequestId = 0;
   Timer? _debounce;
   bool _isLoading = false;
   String? _loadingTrack;
@@ -105,23 +118,31 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   @override
   void initState() {
     super.initState();
+    _searchService =
+        widget.searchService ??
+        MusicSearchService(
+          idTokenProvider: () async =>
+              await FirebaseAuth.instance.currentUser?.getIdToken(),
+        );
     _discoverySongs = _curatedDiscoverySongs
         .map((song) => Map<String, dynamic>.from(song))
         .toList();
-    unawaited(_loadDiscoverySongs());
+    if (widget.loadDiscovery) unawaited(_loadDiscoverySongs());
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _searchService.close();
     _searchController.dispose();
     super.dispose();
   }
 
   Future<Map<String, dynamic>> _getJson(Uri url) async {
     final response = await http.get(url).timeout(const Duration(seconds: 15));
-    if (response.statusCode != 200)
+    if (response.statusCode != 200) {
       throw Exception('Servidor retornou ${response.statusCode}');
+    }
     final decoded = json.decode(response.body);
     if (decoded is! Map<String, dynamic>) throw Exception('Resposta inválida.');
     return decoded;
@@ -247,8 +268,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final artist = _displayArtist(song);
     final content = song['content']?.toString() ?? '';
     if (track.trim().isEmpty || artist.trim().isEmpty) return;
-    if (song['isCachedCifra'] == true && !SongContentQuality.hasLyrics(content))
+    if (song['isCachedCifra'] == true &&
+        !SongContentQuality.hasLyrics(content)) {
       return;
+    }
 
     final key =
         '${_normalizeForDiscovery(artist)}|${_normalizeForDiscovery(track)}';
@@ -323,7 +346,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   // ============================================================
-  // BUSCA NATURAL: CONFIANDO NA RELEVÂNCIA DA APPLE
+  // Busca por relevancia; catalogo do artista carregado separadamente.
   // ============================================================
   Future<void> _performSearch(String query) async {
     final cleanQuery = query.trim();
@@ -337,6 +360,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         _artist = null;
         _artistTopSongs = [];
         _isLoading = false;
+        _searchError = null;
       });
       return;
     }
@@ -348,175 +372,102 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         _artistTopSongs = [];
         _albums = [];
         _songs = [];
+        _searchError = null;
+        _artistError = null;
+        _isLoadingArtist = false;
+        _activeFilter = 'Músicas';
       });
     }
 
     try {
-      // 1. Busca Simples: Pegamos as 50 melhores músicas segundo a Apple
-      final searchUrl = Uri.https('itunes.apple.com', '/search', {
-        'term': cleanQuery,
-        'entity': 'song',
-        'limit': '50',
-        'country': 'br',
-      });
-
-      final response = await http
-          .get(searchUrl)
-          .timeout(const Duration(seconds: 15));
-      final jsonResponse = json.decode(response.body);
-      final rawSongs = jsonResponse['results'] as List? ?? [];
-
-      if (rawSongs.isEmpty) {
+      void accept(MusicSearchResult result) {
         if (!mounted || requestId != _searchRequestId) return;
-        setState(() => _isLoading = false);
-        return;
-      }
-
-      // 2. Filtramos e Limpamos MANTENDO a ordem exata da Apple
-      final List<Map<String, dynamic>> processedSongs = [];
-      final Set<String> seenKeys = {};
-
-      for (var item in rawSongs) {
-        if (item is! Map) continue;
-        final song = Map<String, dynamic>.from(item);
-
-        String title = song['trackName']?.toString() ?? '';
-        String artist = song['artistName']?.toString() ?? '';
-
-        final lowerTitle = title.toLowerCase();
-        if (lowerTitle.contains('playback') ||
-            lowerTitle.contains('karaoke') ||
-            lowerTitle.contains('instrumental')) {
-          continue;
-        }
-
-        // Título visualmente limpo
-        String cleanTitle = title
-            .replaceAll(RegExp(r'\(.*?\)'), '')
-            .replaceAll(RegExp(r'\[.*?\]'), '')
-            .trim();
-        song['cleanTrackName'] = cleanTitle;
-
-        final key = '${artist.toLowerCase()}|${cleanTitle.toLowerCase()}';
-        if (!seenKeys.contains(key)) {
-          seenKeys.add(key);
-          processedSongs.add(song);
-        }
-      }
-
-      if (processedSongs.isEmpty) {
-        if (!mounted || requestId != _searchRequestId) return;
-        setState(() => _isLoading = false);
-        return;
-      }
-
-      // 3. O "Melhor Artista" é simplesmente o dono da música Nº 1
-      final bestMatch = processedSongs.first;
-      final artistId = bestMatch['artistId'];
-
-      Map<String, dynamic>? artistProfile;
-      List<dynamic> topSongs = [];
-      List<dynamic> albums = [];
-
-      if (artistId != null) {
-        final lookupUrl = Uri.https('itunes.apple.com', '/lookup', {
-          'id': artistId.toString(),
-          'entity': 'song',
-          'limit': '25',
-          'country': 'br',
+        setState(() {
+          _artist = result.artist;
+          _songs = result.songs;
+          _searchError = result.partial
+              ? 'Uma fonte está indisponível. Exibindo os resultados disponíveis.'
+              : null;
+          _isLoading = false;
         });
-        final albumUrl = Uri.https('itunes.apple.com', '/lookup', {
-          'id': artistId.toString(),
-          'entity': 'album',
-          'limit': '15',
-          'country': 'br',
-        });
-
-        final results = await Future.wait([
-          http.get(lookupUrl).timeout(const Duration(seconds: 10)),
-          http.get(albumUrl).timeout(const Duration(seconds: 10)),
-        ]);
-
-        final artistData =
-            json.decode(results[0].body)['results'] as List? ?? [];
-        final albumsData =
-            json.decode(results[1].body)['results'] as List? ?? [];
-
-        if (artistData.isNotEmpty) {
-          artistProfile = artistData.firstWhere(
-            (item) => item['wrapperType'] == 'artist',
-            orElse: () => null,
-          );
-
-          final rawTop = artistData
-              .where((item) => item['wrapperType'] == 'track')
-              .toList();
-          final uniqueTop = <String, dynamic>{};
-          for (var song in rawTop) {
-            String title = song['trackName']?.toString() ?? '';
-            title = title
-                .replaceAll(RegExp(r'\(.*?\)'), '')
-                .replaceAll(RegExp(r'\[.*?\]'), '')
-                .trim();
-            song['cleanTrackName'] = title;
-            final key = title.toLowerCase();
-            if (!uniqueTop.containsKey(key) && !key.contains('playback'))
-              uniqueTop[key] = song;
-          }
-          topSongs = uniqueTop.values.toList();
-        }
-
-        final rawAlbums = albumsData
-            .where((item) => item['wrapperType'] == 'collection')
-            .toList();
-        final uniqueAlbums = <String, dynamic>{};
-        for (var album in rawAlbums) {
-          final name = album['collectionName']?.toString() ?? '';
-          if (!name.toLowerCase().contains('single') &&
-              !name.toLowerCase().contains('playback')) {
-            uniqueAlbums[name.toLowerCase()] = album;
-          }
-        }
-        albums = uniqueAlbums.values.toList();
       }
 
-      if (artistProfile != null) {
-        artistProfile['artworkUrl100'] ??= bestMatch['artworkUrl100'];
-      } else {
-        artistProfile = {
-          'artistName': bestMatch['artistName'],
-          'artworkUrl100': bestMatch['artworkUrl100'],
-        };
-      }
-
-      if (!mounted || requestId != _searchRequestId) return;
-
-      setState(() {
-        _artist = artistProfile;
-        _artistTopSongs = topSongs;
-        _songs = processedSongs;
-        _albums = albums;
-        _isLoading = false;
-      });
+      final result = await _searchService.search(cleanQuery, onUpdate: accept);
+      accept(result);
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Erro ao pesquisar: $e'),
-          backgroundColor: Colors.redAccent,
-        ),
-      );
+      if (!mounted || requestId != _searchRequestId) return;
+      setState(() {
+        _isLoading = false;
+        _searchError = 'Não foi possível consultar o catálogo agora.';
+      });
     }
   }
 
   void _onSearchChanged(String query) {
     _debounce?.cancel();
+    // Invalidate immediately, not only after the debounce expires.
+    _searchRequestId++;
+    if (query.trim().isEmpty) {
+      unawaited(_performSearch(query));
+      return;
+    }
     _debounce = Timer(
       const Duration(milliseconds: 450),
       () => _performSearch(query),
     );
-    if (mounted) setState(() {});
+    if (mounted) setState(() => _isLoading = true);
+  }
+
+  Future<void> _selectFilter(String filter) async {
+    final artistRequestId = ++_artistRequestId;
+    setState(() {
+      _activeFilter = filter;
+      _isLoadingArtist = false;
+      _artistError = null;
+    });
+    if (filter == 'Músicas' || _artist?['artistId'] == null) return;
+    final entity = filter == 'Álbuns' ? 'album' : 'song';
+    if (entity == 'song' && _artistTopSongs.isNotEmpty ||
+        entity == 'album' && _albums.isNotEmpty) {
+      return;
+    }
+    final requestId = _searchRequestId;
+    final id = _artist!['artistId'];
+    setState(() {
+      _isLoadingArtist = true;
+      _artistError = null;
+    });
+    try {
+      final items = await _searchService.artistItems(id, entity);
+      if (!mounted ||
+          requestId != _searchRequestId ||
+          artistRequestId != _artistRequestId ||
+          _activeFilter != filter) {
+        return;
+      }
+      setState(() {
+        if (entity == 'song') {
+          _artistTopSongs = MusicSearchRanking.rank(
+            _artist!['artistName'].toString(),
+            items,
+          );
+        } else {
+          _albums = items;
+        }
+        _isLoadingArtist = false;
+      });
+    } catch (_) {
+      if (!mounted ||
+          requestId != _searchRequestId ||
+          artistRequestId != _artistRequestId ||
+          _activeFilter != filter) {
+        return;
+      }
+      setState(() {
+        _isLoadingArtist = false;
+        _artistError = 'Não foi possível carregar este artista agora.';
+      });
+    }
   }
 
   // ============================================================
@@ -527,8 +478,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     String artist,
     String coverUrl,
   ) async {
-    if (_loadingTrack != null || track.trim().isEmpty || artist.trim().isEmpty)
+    if (_loadingTrack != null ||
+        track.trim().isEmpty ||
+        artist.trim().isEmpty) {
       return;
+    }
 
     if (mounted) setState(() => _loadingTrack = track);
 
@@ -566,8 +520,9 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
     void clearColdStartWarning() {
       coldStartTimer.cancel();
-      if (mounted && snackBarShown)
+      if (mounted && snackBarShown) {
         ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      }
     }
 
     try {
@@ -665,12 +620,11 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
   void _openArtistSongs() {
     if (_artist == null) return;
-    setState(() => _activeFilter = 'Artistas');
+    unawaited(_selectFilter('Artistas'));
   }
 
   void _openArtistAlbums() {
-    if (_albums.isEmpty) return;
-    setState(() => _activeFilter = 'Álbuns');
+    unawaited(_selectFilter('Álbuns'));
   }
 
   Future<void> _openAlbum(Map<String, dynamic> album) async {
@@ -682,23 +636,17 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     if (mounted) setState(() => _loadingAlbumId = albumKey);
 
     try {
-      final url = Uri.parse(
-        'https://itunes.apple.com/lookup?id=$collectionId&entity=song&country=br&limit=100',
-      );
-      final jsonResponse = await _getJson(url);
-      final results = jsonResponse['results'] is List
-          ? List<dynamic>.from(jsonResponse['results'])
-          : <dynamic>[];
+      final results = await _searchService.albumTracks(collectionId);
 
       // Remove as tracks que contêm 'playback'
       final tracks = results.where((item) {
-        if (item is! Map ||
-            item['wrapperType'] != 'track' ||
-            item['kind'] != 'song')
+        if (item['kind'] != 'song') {
           return false;
+        }
         final title = item['trackName']?.toString().toLowerCase() ?? '';
-        if (title.contains('playback') || title.contains('karaoke'))
+        if (title.contains('playback') || title.contains('karaoke')) {
           return false;
+        }
         return true;
       }).toList();
 
@@ -900,7 +848,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           style: TextStyle(
             fontSize: 26,
             fontWeight: FontWeight.w800,
-            letterSpacing: -0.5,
+            letterSpacing: 0,
           ),
         ),
       ),
@@ -932,7 +880,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         decoration: BoxDecoration(
           boxShadow: [
             BoxShadow(
-              color: Colors.blueAccent.withOpacity(0.05),
+              color: Colors.blueAccent.withValues(alpha: 0.05),
               blurRadius: 20,
               offset: const Offset(0, 10),
             ),
@@ -941,8 +889,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         child: TextField(
           controller: _searchController,
           onChanged: _onSearchChanged,
+          maxLength: 120,
           style: const TextStyle(color: Colors.white, fontSize: 16),
           decoration: InputDecoration(
+            counterText: '',
             hintText: 'Buscar artista ou música...',
             hintStyle: TextStyle(color: Colors.grey.shade600),
             prefixIcon: const Icon(
@@ -963,6 +913,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                         _artist = null;
                         _artistTopSongs = [];
                         _isLoading = false;
+                        _searchError = null;
                       });
                     },
                   )
@@ -989,18 +940,18 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         itemCount: filters.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        separatorBuilder: (_, _) => const SizedBox(width: 8),
         itemBuilder: (context, index) {
           final filter = filters[index], selected = _activeFilter == filter;
           return GestureDetector(
-            onTap: () => setState(() => _activeFilter = filter),
+            onTap: () => _selectFilter(filter),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 180),
               padding: const EdgeInsets.symmetric(horizontal: 18),
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: selected
-                    ? Colors.blueAccent.withOpacity(0.15)
+                    ? Colors.blueAccent.withValues(alpha: 0.15)
                     : const Color(0xFF17171F),
                 borderRadius: BorderRadius.circular(30),
                 border: Border.all(
@@ -1023,35 +974,50 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Widget _buildSearchResults() {
+    if (_activeFilter != 'Músicas' && _isLoadingArtist) {
+      return const Center(child: LogoLoader(size: 60));
+    }
+    if (_activeFilter != 'Músicas' && _artistError != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_artistError!, style: const TextStyle(color: Colors.white70)),
+            TextButton(
+              onPressed: () => _selectFilter(_activeFilter),
+              child: const Text('Tentar novamente'),
+            ),
+          ],
+        ),
+      );
+    }
     if (_activeFilter == 'Álbuns') return _buildAlbumsTab();
     if (_activeFilter == 'Artistas') return _buildArtistsTab();
     return _buildSongsTab();
   }
 
   Widget _buildSongsTab() {
+    final artistOnly =
+        _artist != null &&
+        MusicSearchRanking.normalize(_searchController.text) ==
+            MusicSearchRanking.normalize(_artist!['artistName'].toString());
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       physics: const BouncingScrollPhysics(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (_artist != null) _buildArtistHero(),
-          if (_artist != null && _artistTopSongs.isNotEmpty) ...[
-            const SizedBox(height: 26),
-            const Text(
-              'TOP MÚSICAS',
-              style: TextStyle(
-                color: Colors.blueAccent,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.2,
+          if (_searchError != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                _searchError!,
+                style: const TextStyle(color: Colors.white70),
               ),
             ),
-            const SizedBox(height: 12),
-            ..._artistTopSongs.map((song) => _buildCompactSong(song)),
-          ],
+          if (artistOnly) _buildArtistHero(),
           if (_songs.isNotEmpty) ...[
-            const SizedBox(height: 30),
+            const SizedBox(height: 12),
             const Text(
               'MÚSICAS',
               style: TextStyle(
@@ -1062,6 +1028,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             ),
             const SizedBox(height: 14),
             ..._songs.map((song) => _buildSongCard(song)),
+          ],
+          if (_artist != null && !artistOnly) ...[
+            const SizedBox(height: 20),
+            _buildArtistHero(),
           ],
           if (_songs.isEmpty && _artist == null) _buildEmptyState(),
         ],
@@ -1075,17 +1045,19 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final artistName = _artist!['artistName']?.toString() ?? 'Artista';
     String imageUrl = '';
 
-    if (_artist!['artworkUrl100'] != null)
+    if (_artist!['artworkUrl100'] != null) {
       imageUrl = _artist!['artworkUrl100'].toString();
-    if (imageUrl.isEmpty && _artistTopSongs.isNotEmpty)
+    }
+    if (imageUrl.isEmpty && _artistTopSongs.isNotEmpty) {
       imageUrl = _artistTopSongs.first['artworkUrl100']?.toString() ?? '';
+    }
 
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: const Color(0xFF16161E),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.04)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.04)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1208,7 +1180,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         decoration: BoxDecoration(
           color: const Color(0xFF16161E),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white.withOpacity(0.03)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.03)),
         ),
         child: Row(
           children: [
@@ -1271,10 +1243,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     final artistName = _artist!['artistName']?.toString() ?? 'Artista';
     String image = '';
 
-    if (_artist!['artworkUrl100'] != null)
+    if (_artist!['artworkUrl100'] != null) {
       image = _artist!['artworkUrl100'].toString();
-    if (image.isEmpty && _artistTopSongs.isNotEmpty)
+    }
+    if (image.isEmpty && _artistTopSongs.isNotEmpty) {
       image = _artistTopSongs.first['artworkUrl100']?.toString() ?? '';
+    }
 
     return ListView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
@@ -1312,12 +1286,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         if (_artistTopSongs.isNotEmpty) ...[
           const SizedBox(height: 24),
           const Text(
-            'DESTAQUES DO ARTISTA',
+            'MÚSICAS DO ARTISTA',
             style: TextStyle(
               color: Colors.blueAccent,
               fontSize: 12,
               fontWeight: FontWeight.bold,
-              letterSpacing: 1.2,
+              letterSpacing: 0,
             ),
           ),
           const SizedBox(height: 12),
@@ -1422,51 +1396,13 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
     );
   }
 
-  Widget _buildCompactSong(dynamic song) {
-    final track =
-        song['cleanTrackName']?.toString() ??
-        song['trackName']?.toString() ??
-        '';
-    final searchTrack = song['trackName']?.toString() ?? '';
-    final artist = song['artistName']?.toString() ?? '';
-    final image = song['artworkUrl100']?.toString() ?? '';
-    final isLoading = _loadingTrack == searchTrack;
-
-    return ListTile(
-      contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 2),
-      leading: _buildArtwork(image, 50),
-      title: Text(
-        track,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 15,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-      subtitle: Text(
-        artist,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-      ),
-      trailing: isLoading
-          ? const SizedBox(width: 28, height: 28, child: LogoLoader(size: 28))
-          : IconButton(
-              icon: const Icon(Icons.play_arrow_rounded, color: Colors.white),
-              onPressed: () => _onSongSelected(searchTrack, artist, image),
-            ),
-    );
-  }
-
   Widget _buildSongCard(dynamic song) {
     final image = song['artworkUrl100']?.toString() ?? '';
     final track =
         song['cleanTrackName']?.toString() ??
         song['trackName']?.toString() ??
         'Desconhecido';
-    final searchTrack = song['trackName']?.toString() ?? '';
+    final searchTrack = _searchTrack(Map<String, dynamic>.from(song));
     final artist = song['artistName']?.toString() ?? 'Desconhecido';
     final isLoading = _loadingTrack == searchTrack;
 
@@ -1475,14 +1411,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF16161E),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.02)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.02)),
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         leading: _buildArtwork(image, 54),
         title: Text(
           track,
-          maxLines: 1,
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: const TextStyle(
             color: Colors.white,
@@ -1491,8 +1427,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           ),
         ),
         subtitle: Text(
-          artist,
-          maxLines: 1,
+          song['approximateMatch'] == true
+              ? '$artist · Resultado aproximado'
+              : song['catalogMatch'] == 'lyrics'
+              ? '$artist · Encontrada pelo trecho'
+              : artist,
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
         ),
@@ -1571,6 +1511,35 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   Widget _buildEmptyState() {
+    if (_searchController.text.trim().isNotEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.search_off_rounded,
+                size: 40,
+                color: Colors.white38,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _searchError ?? 'Nenhum resultado relevante nesta aba.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70),
+              ),
+              if (_searchError != null)
+                TextButton(
+                  onPressed: () => _performSearch(_searchController.text),
+                  child: const Text('Tentar novamente'),
+                ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (!widget.loadDiscovery) return const SizedBox.shrink();
     final trending = _discoverySongs.take(5).toList();
     final highlights = _discoverySongs.skip(2).take(5).toList();
 
@@ -1614,7 +1583,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFF15151E),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
       ),
       child: Row(
         children: [
@@ -1622,7 +1591,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
             width: 52,
             height: 52,
             decoration: BoxDecoration(
-              color: Colors.blueAccent.withOpacity(0.14),
+              color: Colors.blueAccent.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(16),
             ),
             child: const Icon(
@@ -1679,7 +1648,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           decoration: BoxDecoration(
             color: const Color(0xFF17171F),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withOpacity(0.06)),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
           ),
           child: Icon(actionIcon, color: Colors.blueAccent, size: 18),
         ),
@@ -1757,7 +1726,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     width: 36,
                     height: 36,
                     decoration: BoxDecoration(
-                      color: Colors.blueAccent.withOpacity(0.14),
+                      color: Colors.blueAccent.withValues(alpha: 0.14),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(
@@ -1779,7 +1748,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         scrollDirection: Axis.horizontal,
         physics: const BouncingScrollPhysics(),
         itemCount: songs.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 12),
+        separatorBuilder: (_, _) => const SizedBox(width: 12),
         itemBuilder: (context, index) => _buildHighlightCard(songs[index]),
       ),
     );
@@ -1800,7 +1769,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
         decoration: BoxDecoration(
           color: const Color(0xFF17171F),
           borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: Colors.white.withOpacity(0.05)),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1812,7 +1781,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                   Positioned.fill(
                     child: Container(
                       decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.45),
+                        color: Colors.black.withValues(alpha: 0.45),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: const Center(child: LogoLoader(size: 34)),
@@ -1906,6 +1875,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   }
 
   String _searchTrack(Map<String, dynamic> song) {
+    final canonical = song['searchTrackName']?.toString();
+    if (canonical != null && canonical.isNotEmpty) return canonical;
     return song['trackName']?.toString().trim().isNotEmpty == true
         ? song['trackName'].toString()
         : _displayTrack(song);
