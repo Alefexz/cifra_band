@@ -90,3 +90,11 @@ Executar `dart run tool/benchmark_music_search.dart` na raiz. Sao 50 buscas sequ
 
 Detalhes de arquitetura e referencias: [Melhoria da pesquisa](MELHORIA_PESQUISA.md).
 
+## Publicacao confirmada
+
+- GitHub: release publica v1.5.5; download HTTP 200; APK de 67281310 bytes.
+- SHA-256 do APK local e asset GitHub: 0c9def7a3eb1f2da1722388250d8801cc57892d6eb40246c5d656610afc75d65.
+- Render /app-version conferido em 2026-09-12T14:22:44Z: latestVersion 1.5.5, latestBuild 23, minimumBuild 21, updateRequired false, URL direta do asset correto.
+- Em producao, /catalog-search e /devices/register retornaram 401 sem token, como esperado. O caminho autenticado de catalog-search nao foi exercitado em producao nesta verificacao.
+- Firestore system_jobs/app_update_push mostrou build 23, lease liberada e cursor nulo apos o processamento. Isso nao confirma entrega fisica de notificacao em cada aparelho.
+- Nao houve instalacao por USB. A verificacao de instalacao e uso no celular do usuario continua pendente.
