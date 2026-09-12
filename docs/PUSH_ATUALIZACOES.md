@@ -28,3 +28,14 @@ O registro e atualizado ao entrar, retomar o app e renovar token; o processo loc
 Testes com emulador Firestore e FCM simulado: filtragem, reinicio, concorrencia, aparelho atualizado, token invalido, falha temporaria e paginacao de 101 aparelhos. Os testes nao comprovam entrega em um celular fisico fechado; isso exige um aparelho registrado numa versao anterior a uma futura versao real.
 
 Referencias oficiais: https://firebase.google.com/docs/cloud-messaging/flutter/receive-messages e https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-lifespan
+
+## Publicacao verificada - 2026-09-11
+
+- GitHub: release publica v1.5.4, APK build 22, download HTTP 200 e tamanho 67281214 bytes.
+- SHA-256 do APK: 998d0c104fc71ef7184c847cb295199cefe5d2d46e33d9770a6111b4facf68d2.
+- Assinatura igual a da distribuicao beta anterior, permitindo atualizar sem desinstalar.
+- Render /app-version: latestVersion 1.5.4, latestBuild 22, minimumBuild 21, updateRequired false e link direto do APK da release.
+- Firestore system_jobs/app_update_push: build 22, verificacao concluida, cursor vazio e trava liberada.
+- POST /devices/register sem autenticacao retorna HTTP 401.
+- Validacao automatizada: 22 testes Flutter, 18 testes Firestore/worker e 8 testes Node aprovados; analise dos arquivos Dart alterados sem problemas.
+- Entrega de push em celular fisico fechado ainda nao comprovada. Validar numa proxima release real, com aparelho registrado na 1.5.4, sem enviar atualizacao ficticia aos usuarios.
