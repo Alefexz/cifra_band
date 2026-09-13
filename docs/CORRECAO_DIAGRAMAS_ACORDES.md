@@ -25,4 +25,4 @@ O anexo recebido foi apenas pasted-text.txt. Os cinco arquivos de substituicao c
 - Teste do modal na propria CifraScreen, em 320x640 e escala de texto 1.3, usando cifra local de teste, abertura ao tocar no F e troca de instrumento.
 - O teclado mostra classes de notas em uma oitava; nao promete uma disposicao especifica de vozes ou baixo para a mao esquerda. O baixo continua informado pelo acorde e pelo servico musical.
 - Nao houve teste em telefone fisico nem abertura de uma cifra baixada ao vivo: adb nao mostrou dispositivo disponivel, somente um emulador offline.
-- APK debug gerado localmente; nenhuma nova versao publicada no GitHub/Render nesta etapa. O APK instalado pelos usuarios nao muda ate uma publicacao posterior.
+- APK debug gerado localmente na etapa de correcao. A publicacao posterior, autorizada pelo usuario, esta registrada em DEPLOY_1_5_7.md.
