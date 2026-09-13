@@ -1,7 +1,7 @@
 const { test, before, after } = require('node:test');
 const { readFileSync } = require('node:fs');
 const { initializeTestEnvironment, assertSucceeds, assertFails } = require('@firebase/rules-unit-testing');
-const { doc, setDoc, getDoc, getDocs, collection, query, or, where, updateDoc, writeBatch, arrayUnion, arrayRemove } = require('firebase/firestore');
+const { doc, setDoc, getDoc, getDocs, collection, query, or, where, documentId, updateDoc, writeBatch, arrayUnion, arrayRemove } = require('firebase/firestore');
 let env;
 before(async () => {
   env = await initializeTestEnvironment({ projectId: 'demo-cifra-band', firestore: {
@@ -9,7 +9,7 @@ before(async () => {
   }});
   await env.withSecurityRulesDisabled(async context => {
     const db = context.firestore();
-    await setDoc(doc(db, 'setlists/owned'), { ownerId: 'owner', title: 'Culto', songIds: [], sharedWith: ['member', 'other'] });
+    await setDoc(doc(db, 'setlists/owned'), { ownerId: 'owner', title: 'Culto', songIds: [], sharedWith: ['member', 'other', 'revoked'] });
     await setDoc(doc(db, 'setlists/legacy'), { ownerId: 'owner', title: 'Antiga', songIds: [] });
     await setDoc(doc(db, 'users/member'), { church_id: 'church', is_admin: false });
     await setDoc(doc(db, 'users/stranger'), { church_id: null, is_admin: false });
@@ -36,10 +36,44 @@ for (const uid of ['owner', 'member']) {
     batch.update(doc(db, 'setlists/owned'), { songIds: arrayUnion(uid), updatedAt: 1 });
     await assertSucceeds(batch.commit());
     await assertSucceeds(getDoc(doc(db, `setlists/owned/songs/${uid}`)));
+    const loaded = await assertSucceeds(getDocs(query(collection(db, 'setlists/owned/songs'), where(documentId(), 'in', [uid]))));
+    if (loaded.size !== 1 || loaded.docs[0].id !== uid) throw Error('Saved song missing from app query');
   });
 }
 test('legacy owner can still add a song without sharedWith field', async () => {
   await assertSucceeds(updateDoc(doc(env.authenticatedContext('owner').firestore(), 'setlists/legacy'), { songIds: arrayUnion('owner') }));
+});
+test('legacy owner saves and queries song batches across the app ten-ID boundary', async () => {
+  const db = env.authenticatedContext('owner').firestore();
+  const ids = Array.from({length: 11}, (_, i) => `chunk-${i}`);
+  const batch = writeBatch(db);
+  for (const id of ids) batch.set(doc(db, `setlists/legacy/songs/${id}`), {title: id, content: 'C G\nLetra', created_by: 'owner'});
+  batch.update(doc(db, 'setlists/legacy'), {songIds: arrayUnion(...ids)});
+  await assertSucceeds(batch.commit());
+  for (let i = 0; i < ids.length; i += 10) {
+    const chunk = ids.slice(i, i + 10);
+    const loaded = await assertSucceeds(getDocs(query(collection(db, 'setlists/legacy/songs'), where(documentId(), 'in', chunk))));
+    if (loaded.size !== chunk.length) throw Error('Song batch incomplete');
+  }
+});
+test('song list queries deny strangers, signed-out users and unrelated setlists', async () => {
+  for (const context of [env.authenticatedContext('stranger'), env.unauthenticatedContext()]) {
+    const db = context.firestore();
+    await assertFails(getDocs(query(collection(db, 'setlists/owned/songs'), where(documentId(), 'in', ['owner', 'member']))));
+    await assertFails(getDocs(collection(db, 'setlists/owned/songs')));
+  }
+  await assertFails(getDocs(query(collection(env.authenticatedContext('member').firestore(), 'setlists/legacy/songs'), where(documentId(), 'in', ['chunk-0']))));
+});
+test('revoked collaborator can no longer query songs', async () => {
+  const songQuery = query(collection(env.authenticatedContext('revoked').firestore(), 'setlists/owned/songs'), where(documentId(), 'in', ['owner']));
+  await assertSucceeds(getDocs(songQuery));
+  await assertSucceeds(updateDoc(doc(env.authenticatedContext('owner').firestore(), 'setlists/owned'), {sharedWith: arrayRemove('revoked')}));
+  await assertFails(getDocs(songQuery));
+});
+test('songs without an accessible parent remain unreadable and cannot be created', async () => {
+  const db = env.authenticatedContext('owner').firestore();
+  await assertFails(getDocs(query(collection(db, 'setlists/missing/songs'), where(documentId(), 'in', ['orphan']))));
+  await assertFails(setDoc(doc(db, 'setlists/missing/songs/orphan'), {title: 'Orfa', content: 'C G\nLetra', created_by: 'owner'}));
 });
 test('stranger cannot read or save and failed batch leaves no orphan song', async () => {
   const db = env.authenticatedContext('stranger').firestore();

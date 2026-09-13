@@ -269,17 +269,18 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
 
       match /songs/{songId} {
-        function parent() {
+        function parentAfterWrite() {
           return getAfter(/databases/$(database)/documents/setlists/$(setlistId)).data;
         }
-        function collaborator() {
-          return signedIn() && (parent().ownerId == request.auth.uid
-            || request.auth.uid in parent().get('sharedWith', []));
+        function canAccessParent(data) {
+          return signedIn() && (data.ownerId == request.auth.uid
+            || request.auth.uid in data.get('sharedWith', []));
         }
-        allow read: if collaborator();
-        allow create: if collaborator()
+        // Queries read committed state; getAfter is only for atomic writes.
+        allow read: if canAccessParent(get(/databases/$(database)/documents/setlists/$(setlistId)).data);
+        allow create: if canAccessParent(parentAfterWrite())
           && request.resource.data.created_by == request.auth.uid
-          && songId in parent().songIds
+          && songId in parentAfterWrite().songIds
           && request.resource.data.content is string
           && request.resource.data.content.size() <= 120000;
         allow update, delete: if false;
