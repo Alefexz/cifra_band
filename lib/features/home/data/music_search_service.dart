@@ -17,6 +17,16 @@ class MusicSearchService {
   final _cache = <String, ({DateTime at, List<Map<String, dynamic>> items})>{};
   void close() => _client.close();
 
+  int _artistCandidateScore(String query, Map<String, dynamic> artist) {
+    final similarity = MusicSearchRanking.artistIntentScore(
+      query,
+      artist['artistName']?.toString() ?? '',
+    );
+    final fans = num.tryParse('${artist['fanCount']}') ?? 0;
+    final albums = int.tryParse('${artist['albumCount']}');
+    return similarity + (fans >= 1000000 ? 300 : 0) - (albums == 0 ? 400 : 0);
+  }
+
   Future<List<Map<String, dynamic>>> _request(
     Uri uri, {
     String key = 'results',
@@ -63,7 +73,44 @@ class MusicSearchService {
     Iterable<Map<String, dynamic>> raw, {
     bool partial = false,
   }) {
-    final songs = MusicSearchRanking.rank(query, raw);
+    var songs = MusicSearchRanking.rank(query, raw);
+    final directArtists =
+        raw
+            .where(
+              (item) =>
+                  item['kind'] == 'artist' &&
+                  MusicSearchRanking.artistIntentScore(
+                        query,
+                        item['artistName']?.toString() ?? '',
+                      ) >=
+                      750,
+            )
+            .toList()
+          ..sort(
+            (a, b) => _artistCandidateScore(
+              query,
+              b,
+            ).compareTo(_artistCandidateScore(query, a)),
+          );
+    if (directArtists.isNotEmpty) {
+      final selected = directArtists.first;
+      final relatedSongs = MusicSearchRanking.rank(
+        selected['artistName'].toString(),
+        raw.where(
+          (s) =>
+              MusicSearchRanking.artistIntentScore(
+                s['artistName']?.toString() ?? '',
+                selected['artistName'].toString(),
+              ) ==
+              1000,
+        ),
+      );
+      songs = relatedSongs;
+      return MusicSearchResult(songs, {
+        ...selected,
+        'artistIntent': true,
+      }, partial: partial);
+    }
     Map<String, dynamic>? artist;
     final candidates = songs.where(
       (s) =>
@@ -98,6 +145,9 @@ class MusicSearchService {
       'global',
       'deezer',
       'apple',
+      'deezer_artists',
+      'apple_artists',
+      'artist_prefix',
     ].expand((key) => providers[key] ?? <Map<String, dynamic>>[]);
     if (seeds.isNotEmpty) onUpdate?.call(_rank(query, seeds));
     Future<void> collect(
@@ -111,11 +161,44 @@ class MusicSearchService {
         failures++;
       }
       final snapshot = _rank(query, merged());
-      if (snapshot.songs.isNotEmpty) onUpdate?.call(snapshot);
+      if (snapshot.songs.isNotEmpty || snapshot.artist != null)
+        onUpdate?.call(snapshot);
     }
 
     final term = MusicSearchRanking.providerQuery(query);
     await Future.wait([
+      collect(
+        'deezer_artists',
+        () async =>
+            (await _request(
+                  Uri.https('api.deezer.com', '/search/artist', {
+                    'q': term,
+                    'limit': '10',
+                  }),
+                  key: 'data',
+                ))
+                .map(
+                  (a) => <String, dynamic>{
+                    'artistId': 'deezer:${a['id']}',
+                    'artistName': a['name'],
+                    'artworkUrl100': a['picture_medium'],
+                    'fanCount': a['nb_fan'],
+                    'albumCount': a['nb_album'],
+                    'kind': 'artist',
+                  },
+                )
+                .toList(),
+      ),
+      collect(
+        'apple_artists',
+        () async => (await _request(
+          _apple('/search', {
+            'term': term,
+            'entity': 'musicArtist',
+            'limit': '10',
+          }),
+        )).map((a) => {...a, 'kind': 'artist'}).toList(),
+      ),
       collect(
         'deezer',
         () async => (await _request(
@@ -146,7 +229,39 @@ class MusicSearchService {
     if (successes == 0 && seeds.isEmpty) {
       throw Exception('Catálogos indisponíveis');
     }
-    final result = _rank(query, merged(), partial: failures > 0);
+    var result = _rank(query, merged(), partial: failures > 0);
+    // A typo in the second name of a duo must not turn into an unrelated song.
+    // Candidate discovery is broad; the full artist name is still fuzzy-validated.
+    if (result.artist?['artistIntent'] != true &&
+        MusicSearchRanking.hymnNumber(query) == null) {
+      final words = MusicSearchRanking.normalize(query).split(' ');
+      if (words.length >= 2 && words.first.length >= 5) {
+        await collect(
+          'artist_prefix',
+          () async =>
+              (await _request(
+                    Uri.https('api.deezer.com', '/search/artist', {
+                      'q': words.first.substring(0, 5),
+                      'limit': '25',
+                    }),
+                    key: 'data',
+                  ))
+                  .map(
+                    (a) => <String, dynamic>{
+                      'artistId': 'deezer:${a['id']}',
+                      'artistName': a['name'],
+                      'artworkUrl100': a['picture_medium'],
+                      'fanCount': a['nb_fan'],
+                      'albumCount': a['nb_album'],
+                      'kind': 'artist',
+                    },
+                  )
+                  .toList(),
+        );
+        result = _rank(query, merged(), partial: failures > 0);
+      }
+    }
+    if (result.artist?['artistIntent'] == true) return result;
     if (result.songs.isNotEmpty ||
         MusicSearchRanking.hymnNumber(query) != null) {
       return result;

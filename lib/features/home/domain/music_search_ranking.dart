@@ -78,6 +78,26 @@ class MusicSearchRanking {
     return a.isNotEmpty && (q == a || q.startsWith('$a ') || q.endsWith(' $a'));
   }
 
+  static int artistIntentScore(String query, String artist) {
+    final q = _words(query).join();
+    final a = _words(artist).join();
+    if (q.isEmpty || a.isEmpty || RegExp(r'\d').hasMatch(q)) return 0;
+    if (q == a) return 1000;
+    if (q.length < 5 || a.length < 5 || (q.length - a.length).abs() > 3)
+      return 0;
+    if ((_words(query).length - _words(artist).length).abs() > 1) return 0;
+    final matches = Fuzzy(
+      [a],
+      options: FuzzyOptions(
+        threshold: q.length >= 10 && q.substring(0, 3) == a.substring(0, 3)
+            ? 0.29
+            : 0.24,
+        distance: 0,
+      ),
+    ).search(q);
+    return matches.isNotEmpty ? 750 : 0;
+  }
+
   static String providerQuery(String query) {
     final ranked = rank(query, verifiedHymns);
     if (ranked.isNotEmpty && hymnNumber(query) != null) {

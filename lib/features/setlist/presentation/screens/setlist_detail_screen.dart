@@ -350,6 +350,8 @@ class _SetlistDetailScreenState extends ConsumerState<SetlistDetailScreen> {
     for (var index = 0; index < songIds.length; index += 10) {
       final chunk = songIds.skip(index).take(10).toList();
       final snapshot = await FirebaseFirestore.instance
+          .collection('setlists')
+          .doc(widget.setlist.id)
           .collection('songs')
           .where(FieldPath.documentId, whereIn: chunk)
           .get();
@@ -752,7 +754,7 @@ class _ShareSetlistModalState extends State<ShareSetlistModal> {
 
                         return FutureBuilder<DocumentSnapshot>(
                           future: FirebaseFirestore.instance
-                              .collection('users')
+                              .collection('public_profiles')
                               .doc(friendId)
                               .get(),
                           builder: (context, friendSnapshot) {

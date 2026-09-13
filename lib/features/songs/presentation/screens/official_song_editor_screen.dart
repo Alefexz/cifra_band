@@ -26,6 +26,7 @@ class _OfficialSongEditorScreenState extends State<OfficialSongEditorScreen> {
   late final TextEditingController _content;
 
   String? _existingId;
+  int? _expectedVersion;
   bool _saving = false;
   OfficialSongValidation? _validation;
 
@@ -39,6 +40,7 @@ class _OfficialSongEditorScreenState extends State<OfficialSongEditorScreen> {
     if (seed is SongModel) model = seed;
 
     _existingId = official?.id;
+    _expectedVersion = official?.versionNumber;
     _title = TextEditingController(text: official?.title ?? model?.title ?? '');
     _artist = TextEditingController(
       text: official?.artist ?? model?.artist ?? '',
@@ -101,6 +103,27 @@ class _OfficialSongEditorScreenState extends State<OfficialSongEditorScreen> {
     }
 
     final draft = OfficialLibraryService.parseImportedText(raw);
+    if (!mounted) return;
+    final accepted = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Revisar importacao'),
+        content: Text(
+          'Titulo sugerido: ${draft.title}\nArtista: ${draft.artist}\nTom: ${draft.originalKey.isEmpty ? 'Nao informado' : draft.originalKey}\n\nConfirme os campos no editor. A letra original foi preservada; o primeiro acorde nao determina o tom.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Revisar'),
+          ),
+        ],
+      ),
+    );
+    if (accepted != true || !mounted) return;
     setState(() {
       if (_title.text.trim().isEmpty || _title.text == 'Nova cifra') {
         _title.text = draft.title;
@@ -109,7 +132,7 @@ class _OfficialSongEditorScreenState extends State<OfficialSongEditorScreen> {
           _artist.text == 'Artista nao informado') {
         _artist.text = draft.artist;
       }
-      _key.text = draft.originalKey;
+      if (draft.originalKey.isNotEmpty) _key.text = draft.originalKey;
       _content.text = draft.content;
       _validation = OfficialLibraryService.validateContent(_content.text);
     });
@@ -131,6 +154,7 @@ class _OfficialSongEditorScreenState extends State<OfficialSongEditorScreen> {
     setState(() => _saving = true);
     try {
       await OfficialLibraryService.saveOfficialSong(
+        expectedVersion: _expectedVersion,
         title: _title.text,
         artist: _artist.text,
         originalKey: _key.text,

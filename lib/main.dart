@@ -16,6 +16,9 @@ import 'core/services/app_diagnostics_service.dart';
 import 'core/services/app_update_service.dart';
 import 'core/services/push_notification_service.dart';
 import 'core/services/backend_warmup_service.dart';
+import 'core/services/member_actions_service.dart';
+import 'core/services/offline_setlist_service.dart';
+import 'core/services/app_owner_service.dart';
 import 'firebase_options.dart';
 
 // ⚠️ ESSA FUNÇÃO PRECISA FICAR AQUI FORA DE QUALQUER CLASSE!
@@ -39,8 +42,8 @@ void main() {
       await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
       FlutterError.onError = (details) {
         AppDiagnosticsService.log(
-          'Erro fatal do Flutter',
-          level: 'fatal',
+          'Erro de interface do Flutter',
+          level: 'error',
           error: details.exception,
           stackTrace: details.stack,
           context: {
@@ -48,7 +51,7 @@ void main() {
             'context': details.context?.toString(),
           },
         );
-        FirebaseCrashlytics.instance.recordFlutterFatalError(details);
+        FirebaseCrashlytics.instance.recordFlutterError(details);
       };
       PlatformDispatcher.instance.onError = (error, stack) {
         AppDiagnosticsService.log(
@@ -115,6 +118,7 @@ class _StartupHooksState extends State<_StartupHooks>
   StreamSubscription<User?>? _authSubscription;
   StreamSubscription<RemoteMessage>? _updateMessageSubscription;
   StreamSubscription<RemoteMessage>? _updateOpenedSubscription;
+  Map<String, dynamic>? _pendingNotification;
 
   @override
   void initState() {
@@ -124,19 +128,38 @@ class _StartupHooksState extends State<_StartupHooks>
       _onUpdateMessage,
     );
     _updateOpenedSubscription = FirebaseMessaging.onMessageOpenedApp.listen(
-      _onUpdateMessage,
+      (message) => _openNotification(message.data),
     );
+    PushNotificationService.onOpen = _openNotification;
+    FirebaseMessaging.instance.getInitialMessage().then((message) {
+      if (message != null) _openNotification(message.data);
+    });
     _authSubscription = FirebaseAuth.instance.authStateChanges().listen(
       _syncCrashContext,
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _checkForUpdateWhenNavigatorIsReady();
+      if (_pendingNotification != null)
+        _openNotification(_pendingNotification!);
     });
   }
 
   Future<void> _syncCrashContext(User? user) async {
     if (user != null) unawaited(PushNotificationService.syncInstalledVersion());
+    if (user != null) {
+      unawaited(
+        MemberActionsService.send(
+          'profile',
+          {},
+        ).catchError((_) => <String, dynamic>{}),
+      );
+      unawaited(
+        OfflineSetlistService.migrateAuthorizedLegacy().catchError((_) {}),
+      );
+      if (_pendingNotification != null)
+        _openNotification(_pendingNotification!);
+    }
     try {
       if (user == null) {
         await FirebaseCrashlytics.instance.setUserIdentifier('');
@@ -186,6 +209,64 @@ class _StartupHooksState extends State<_StartupHooks>
     }
   }
 
+  Future<void> _openNotification(Map<String, dynamic> data) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || rootNavigatorKey.currentContext == null) {
+      _pendingNotification = data;
+      return;
+    }
+    _pendingNotification = null;
+    try {
+      if (data['type'] == 'app_update_available') {
+        _checkForUpdateWhenNavigatorIsReady();
+      } else if (data['type'] == 'support_ticket_created' &&
+          AppOwnerService.isCurrentUserOwner) {
+        appRouter.push('/support-center');
+      } else if (data['type'] == 'support_reply') {
+        final id = '${data['ticketId'] ?? ''}';
+        if (!RegExp(r'^[\w-]{1,128}$').hasMatch(id)) return;
+        final ticket = await FirebaseFirestore.instance
+            .collection('support_tickets')
+            .doc(id)
+            .get();
+        if (ticket.data()?['user']?['uid'] != user.uid ||
+            FirebaseAuth.instance.currentUser?.uid != user.uid)
+          return;
+        appRouter.push('/my-support?ticket=${Uri.encodeQueryComponent(id)}');
+      } else {
+        final id = '${data['scheduleId'] ?? ''}';
+        if (!RegExp(r'^[\w-]{1,128}$').hasMatch(id)) return;
+        final schedule = await FirebaseFirestore.instance
+            .collection('schedules')
+            .doc(id)
+            .get();
+        final profile = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get();
+        if (!schedule.exists ||
+            profile.data()?['church_id'] != schedule.data()?['church_id'] ||
+            FirebaseAuth.instance.currentUser?.uid != user.uid)
+          return;
+        appRouter.push(
+          '/event',
+          extra: {
+            'scheduleId': id,
+            'isAdmin': profile.data()?['is_admin'] == true,
+          },
+        );
+      }
+    } catch (_) {
+      final context = rootNavigatorKey.currentContext;
+      if (context != null && context.mounted)
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          const SnackBar(
+            content: Text('Este item nao esta disponivel para sua conta.'),
+          ),
+        );
+    }
+  }
+
   void _checkForUpdateWhenNavigatorIsReady([int attempt = 0]) {
     if (!mounted) return;
 
@@ -222,6 +303,7 @@ class _StartupHooksState extends State<_StartupHooks>
     _authSubscription?.cancel();
     _updateMessageSubscription?.cancel();
     _updateOpenedSubscription?.cancel();
+    PushNotificationService.onOpen = null;
     super.dispose();
   }
 

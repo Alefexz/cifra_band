@@ -147,7 +147,7 @@ class OfficialLibraryService {
         .collection('official_songs')
         .doc(key)
         .get();
-    if (!doc.exists) return null;
+    if (!doc.exists || doc.data()?['archived'] == true) return null;
     return OfficialSong.fromDoc(doc);
   }
 
@@ -163,6 +163,7 @@ class OfficialLibraryService {
     required String content,
     String? url,
     String? existingId,
+    int? expectedVersion,
   }) async {
     final user = _auth.currentUser;
     if (user == null) throw StateError('Faca login para salvar a cifra.');
@@ -175,38 +176,47 @@ class OfficialLibraryService {
         .doc(churchId)
         .collection('official_songs')
         .doc(docId);
-    final current = await doc.get();
-    final version = current.exists
-        ? (int.tryParse(current.data()?['versionNumber']?.toString() ?? '') ??
-                  1) +
-              1
-        : 1;
+    await _firestore.runTransaction((transaction) async {
+      final current = await transaction.get(doc);
+      final currentVersion =
+          int.tryParse('${current.data()?['versionNumber']}') ?? 0;
+      if (expectedVersion != null && expectedVersion != currentVersion) {
+        throw StateError(
+          'Esta cifra foi alterada por outra pessoa. Reabra a versao atual antes de salvar.',
+        );
+      }
+      final version = current.exists
+          ? (int.tryParse(current.data()?['versionNumber']?.toString() ?? '') ??
+                    1) +
+                1
+          : 1;
 
-    final payload = {
-      'title': title.trim(),
-      'artist': artist.trim(),
-      'originalKey': TransposerEngine.normalizeKey(originalKey).isEmpty
-          ? 'C'
-          : TransposerEngine.normalizeKey(originalKey),
-      'shapeKey': _emptyToNull(shapeKey),
-      'capo': _emptyToNull(capo),
-      'bpm': _emptyToNull(bpm),
-      'referenceUrl': _emptyToNull(referenceUrl),
-      'rehearsalNotes': _emptyToNull(rehearsalNotes),
-      'content': content.trimRight(),
-      'url': url?.trim() ?? '',
-      'archived': false,
-      'versionNumber': version,
-      'updated_by': user.uid,
-      'updated_at': FieldValue.serverTimestamp(),
-      if (!current.exists) 'created_by': user.uid,
-      if (!current.exists) 'created_at': FieldValue.serverTimestamp(),
-    };
+      final payload = {
+        'title': title.trim(),
+        'artist': artist.trim(),
+        'originalKey': TransposerEngine.normalizeKey(originalKey).isEmpty
+            ? 'C'
+            : TransposerEngine.normalizeKey(originalKey),
+        'shapeKey': _emptyToNull(shapeKey),
+        'capo': _emptyToNull(capo),
+        'bpm': _emptyToNull(bpm),
+        'referenceUrl': _emptyToNull(referenceUrl),
+        'rehearsalNotes': _emptyToNull(rehearsalNotes),
+        'content': content.trimRight(),
+        'url': url?.trim() ?? '',
+        'archived': false,
+        'versionNumber': version,
+        'updated_by': user.uid,
+        'updated_at': FieldValue.serverTimestamp(),
+        if (!current.exists) 'created_by': user.uid,
+        if (!current.exists) 'created_at': FieldValue.serverTimestamp(),
+      };
 
-    await doc.set(payload, SetOptions(merge: true));
-    await doc.collection('versions').doc('v$version').set({
-      ...payload,
-      'saved_at': FieldValue.serverTimestamp(),
+      transaction.set(doc, payload, SetOptions(merge: true));
+      transaction.set(doc.collection('versions').doc('v$version'), {
+        ...payload,
+        'saved_at': FieldValue.serverTimestamp(),
+      });
     });
     return docId;
   }
@@ -274,28 +284,13 @@ class OfficialLibraryService {
       if (!TransposerEngine.isChordLine(first) &&
           !TransposerEngine.isHeaderLine(first)) {
         title = first;
-        contentLines.remove(first);
       }
     }
-    if (artist.isEmpty && contentLines.isNotEmpty) {
-      final second = contentLines
-          .map((line) => line.trim())
-          .where((line) => line.isNotEmpty)
-          .skip(1)
-          .take(1)
-          .join();
-      if (second.isNotEmpty &&
-          !TransposerEngine.isChordLine(second) &&
-          !TransposerEngine.isHeaderLine(second)) {
-        artist = second;
-      }
-    }
-    key = key.isEmpty ? _inferKey(contentLines.join('\n')) : key;
 
     return ImportedSongDraft(
       title: title.isEmpty ? 'Nova cifra' : title,
       artist: artist.isEmpty ? 'Artista nao informado' : artist,
-      originalKey: key.isEmpty ? 'C' : key,
+      originalKey: key,
       content: contentLines.join('\n').trim(),
     );
   }
@@ -346,18 +341,6 @@ class OfficialLibraryService {
   static String? _emptyToNull(String? value) {
     final text = value?.trim() ?? '';
     return text.isEmpty ? null : text;
-  }
-
-  static String _inferKey(String content) {
-    for (final line in content.split('\n')) {
-      if (!TransposerEngine.isChordLine(line)) continue;
-      for (final token in line.trim().split(RegExp(r'\s+'))) {
-        if (TransposerEngine.isChordToken(token)) {
-          return TransposerEngine.normalizeKey(token);
-        }
-      }
-    }
-    return 'C';
   }
 
   static String _slug(String value) {

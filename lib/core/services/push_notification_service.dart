@@ -4,7 +4,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -27,6 +26,7 @@ class PushNotificationService {
 
   static bool _localNotificationsReady = false;
   static bool _foregroundListenerReady = false;
+  static void Function(Map<String, dynamic>)? onOpen;
   static StreamSubscription<String>? _tokenRefreshSubscription;
   static Future<void>? _versionRegistration;
   static String? _registeredVersionKey;
@@ -125,7 +125,7 @@ class PushNotificationService {
       id: DateTime.now().millisecondsSinceEpoch.remainder(100000),
       title: title,
       body: body,
-      payload: data?.entries.join('&'),
+      payload: jsonEncode(data ?? {}),
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
           _androidChannel.id,
@@ -198,20 +198,9 @@ class PushNotificationService {
   }
 
   static Future<void> _saveToken(String uid, String token) async {
-    try {
-      await FirebaseFirestore.instance.collection('users').doc(uid).set({
-        'fcmTokens': FieldValue.arrayUnion([token]),
-        'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
-
-      debugPrint(
-        '[Push] Token FCM registrado com sucesso para $uid: ${_maskToken(token)}',
-      );
-      unawaited(syncInstalledVersion());
-    } catch (e, stackTrace) {
-      debugPrint('[Push] Falha ao salvar token FCM no Firestore: $e');
-      debugPrintStack(stackTrace: stackTrace);
-    }
+    if (FirebaseAuth.instance.currentUser?.uid != uid) return;
+    _registeredVersionKey = null;
+    await syncInstalledVersion();
   }
 
   static Future<void> _initializeLocalNotifications() async {
@@ -222,7 +211,14 @@ class PushNotificationService {
       iOS: DarwinInitializationSettings(),
     );
 
-    await _localNotifications.initialize(settings: initializationSettings);
+    await _localNotifications.initialize(
+      settings: initializationSettings,
+      onDidReceiveNotificationResponse: (response) =>
+          _openPayload(response.payload),
+    );
+    final launch = await _localNotifications.getNotificationAppLaunchDetails();
+    if (launch?.didNotificationLaunchApp == true)
+      _openPayload(launch?.notificationResponse?.payload);
 
     final androidPlugin = _localNotifications
         .resolvePlatformSpecificImplementation<
@@ -241,6 +237,8 @@ class PushNotificationService {
 
     FirebaseMessaging.onMessage.listen((message) async {
       if (message.data['type'] == 'app_update_available') return;
+      if (Platform.isIOS || Platform.isMacOS)
+        return; // Native foreground presentation is enabled.
       final notification = message.notification;
       final android = notification?.android;
 
@@ -253,6 +251,7 @@ class PushNotificationService {
         id: notification.hashCode,
         title: notification.title,
         body: notification.body,
+        payload: jsonEncode(message.data),
         notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
             _androidChannel.id,
@@ -272,8 +271,41 @@ class PushNotificationService {
     _foregroundListenerReady = true;
   }
 
-  static String _maskToken(String token) {
-    if (token.length <= 16) return token;
-    return '${token.substring(0, 8)}...${token.substring(token.length - 8)}';
+  static Future<void> detachBeforeSignOut() async {
+    await _tokenRefreshSubscription?.cancel();
+    _tokenRefreshSubscription = null;
+    _registeredVersionKey = null;
+    try {
+      final token = await _messaging.getToken();
+      final idToken = await FirebaseAuth.instance.currentUser?.getIdToken();
+      if (token != null && idToken != null) {
+        await http
+            .post(
+              Uri.https('cifraband-api.onrender.com', '/devices/unregister'),
+              headers: {
+                'Authorization': 'Bearer $idToken',
+                'Content-Type': 'application/json',
+              },
+              body: jsonEncode({'token': token}),
+            )
+            .timeout(const Duration(seconds: 8));
+      }
+    } catch (_) {
+      /* Token invalidation below also protects offline sign-out. */
+    }
+    try {
+      await _messaging.deleteToken();
+    } catch (_) {}
+    await _localNotifications.cancelAll();
+  }
+
+  static void _openPayload(String? payload) {
+    if (payload == null) return;
+    try {
+      final data = jsonDecode(payload);
+      if (data is Map<String, dynamic>) onOpen?.call(data);
+    } catch (_) {
+      /* Ignore malformed or legacy notification payloads. */
+    }
   }
 }

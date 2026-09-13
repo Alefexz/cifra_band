@@ -1,6 +1,7 @@
 // lib/features/songs/presentation/screens/add_song_screen.dart
 
 import 'dart:async';
+import 'package:cifra_band/core/services/member_actions_service.dart';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -232,12 +233,11 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
           'downvotes': [],
         };
 
-        await FirebaseFirestore.instance
-            .collection('schedules')
-            .doc(widget.destination.id)
-            .update({
-              'suggested_songs': FieldValue.arrayUnion([songMap]),
-            });
+        await MemberActionsService.send('schedule', {
+          'scheduleId': widget.destination.id,
+          'action': 'suggest',
+          'song': songMap,
+        });
 
         final scheduleData = scheduleDoc.data();
         final teamAssignments = List<dynamic>.from(
@@ -277,10 +277,10 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
         context.pop();
       } else {
         final firestore = FirebaseFirestore.instance;
-        final songDocRef = firestore.collection('songs').doc();
         final setlistRef = firestore
             .collection('setlists')
             .doc(widget.destination.id);
+        final songDocRef = setlistRef.collection('songs').doc();
         final batch = firestore.batch();
 
         batch.set(songDocRef, {

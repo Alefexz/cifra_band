@@ -4,7 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 class MySupportScreen extends StatefulWidget {
-  const MySupportScreen({super.key});
+  const MySupportScreen({super.key, this.selectedTicketId});
+  final String? selectedTicketId;
 
   @override
   State<MySupportScreen> createState() => _MySupportScreenState();
@@ -173,7 +174,14 @@ class _MySupportScreenState extends State<MySupportScreen> {
                   if (result.tickets.isEmpty)
                     const _SupportEmptyCard()
                   else
-                    ...result.tickets.map(
+                    ...[
+                      ...result.tickets.where(
+                        (t) => t.id == widget.selectedTicketId,
+                      ),
+                      ...result.tickets.where(
+                        (t) => t.id != widget.selectedTicketId,
+                      ),
+                    ].map(
                       (ticket) => Padding(
                         padding: const EdgeInsets.only(bottom: 12),
                         child: _MyTicketCard(

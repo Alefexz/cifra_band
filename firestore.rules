@@ -45,8 +45,6 @@ service cloud.firestore {
           'church_id',
           'is_admin',
           'created_at',
-          'fcmTokens',
-          'fcmTokenUpdatedAt',
           'friendCode',
           'friends'
         ])
@@ -56,17 +54,13 @@ service cloud.firestore {
 
     function selfProfileUpdate(userId) {
       return isSelf(userId)
-        && affectedOnly(['name', 'email', 'roles', 'fcmTokens', 'fcmTokenUpdatedAt', 'friendCode', 'friends'])
+        && affectedOnly(['name', 'email', 'roles'])
         && request.resource.data.church_id == resource.data.church_id
         && request.resource.data.is_admin == resource.data.is_admin;
     }
 
     function selfJoinMinistry(userId) {
-      return isSelf(userId)
-        && affectedOnly(['church_id', 'is_admin'])
-        && resource.data.is_admin != true
-        && request.resource.data.is_admin == false
-        && request.resource.data.church_id is string;
+      return false; // Membership changes require an authenticated invite endpoint.
     }
 
     function selfClaimCreatedMinistry(userId) {
@@ -97,16 +91,12 @@ service cloud.firestore {
     }
 
     function mutualFriendUpdate(userId) {
-      return signedIn()
-        && userId != request.auth.uid
-        && affectedOnly(['friends'])
-        && request.auth.uid in request.resource.data.friends;
+      return false;
     }
 
     function canReadUser(userId) {
       return isSelf(userId)
-        || sameChurch(resource.data.church_id)
-        || (signedIn() && resource.data.friendCode is string);
+        || sameChurch(resource.data.church_id);
     }
 
     function validInviteCreate() {
@@ -158,9 +148,7 @@ service cloud.firestore {
     }
 
     function memberScheduleUpdate() {
-      return scheduleTeamMember()
-        && scheduleBaseUnchanged()
-        && scheduleMemberFieldsOnly();
+      return false; // The server changes only the caller's response/vote.
     }
 
     function scheduleChurch(scheduleId) {
@@ -210,6 +198,10 @@ service cloud.firestore {
       allow update: if isAdminForChurch(ministryId);
       allow delete: if false;
 
+      match /private/{documentId} {
+        allow read, write: if isSelf(userId) && documentId == 'push';
+      }
+
       match /official_songs/{songId} {
         allow read: if sameChurch(ministryId);
         allow create, update, delete: if isAdminForChurch(ministryId);
@@ -247,7 +239,11 @@ service cloud.firestore {
       match /rehearsal_status/{statusId} {
         allow read: if sameChurch(scheduleChurch(scheduleId));
         allow create, update: if sameChurch(scheduleChurch(scheduleId))
-          && request.resource.data.uid == request.auth.uid;
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.songKey is string
+          && statusId == request.auth.uid + '_' + request.resource.data.songKey
+          && (!exists(/databases/$(database)/documents/schedules/$(scheduleId)/rehearsal_status/$(statusId))
+            || resource.data.uid == request.auth.uid);
         allow delete: if isAdminForChurch(scheduleChurch(scheduleId));
       }
     }
@@ -275,12 +271,33 @@ service cloud.firestore {
             ))
         );
       allow delete: if signedIn() && resource.data.ownerId == request.auth.uid;
+
+      match /songs/{songId} {
+        function parent() {
+          return getAfter(/databases/$(database)/documents/setlists/$(setlistId)).data;
+        }
+        function collaborator() {
+          return signedIn() && (parent().ownerId == request.auth.uid
+            || request.auth.uid in parent().get('sharedWith', []));
+        }
+        allow read: if collaborator();
+        allow create: if collaborator()
+          && request.resource.data.created_by == request.auth.uid
+          && songId in parent().songIds
+          && request.resource.data.content is string
+          && request.resource.data.content.size() <= 120000;
+        allow update, delete: if false;
+      }
     }
 
     match /songs/{songId} {
-      allow read: if signedIn();
-      allow create: if signedIn();
+      allow read, create: if false;
       allow update, delete: if false;
+    }
+
+    match /public_profiles/{userId} {
+      allow read: if signedIn();
+      allow write: if false;
     }
 
     match /global_cifras/{docId} {

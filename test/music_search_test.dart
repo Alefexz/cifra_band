@@ -111,20 +111,22 @@ void main() {
     );
   });
   test(
-    'initial search never waits for artist or album lookup; cached on repeat',
+    'typed searches include artist discovery, not albums; cached on repeat',
     () async {
       var calls = 0;
       final service = MusicSearchService(
         client: MockClient((r) async {
           calls++;
-          expect(r.url.path, '/search');
+          expect(r.url.path, anyOf('/search', '/search/artist'));
+          if (r.url.path == '/search/artist') return http.Response('{"data":[]}', 200);
+          if (r.url.queryParameters['entity'] == 'musicArtist') return response([]);
           return response([song('Galileu', 'Fernandinho')]);
         }),
       );
       addTearDown(service.close);
       expect((await service.search('Galileu')).songs, hasLength(1));
       await service.search('Galileu');
-      expect(calls, 2);
+      expect(calls, 4);
     },
   );
   test(

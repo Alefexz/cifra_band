@@ -149,8 +149,11 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/my-support',
-      pageBuilder: (context, state) =>
-          _buildFadeTransition(context, state, const MySupportScreen()),
+      pageBuilder: (context, state) => _buildFadeTransition(
+        context,
+        state,
+        MySupportScreen(selectedTicketId: state.uri.queryParameters['ticket']),
+      ),
     ),
     GoRoute(
       path: '/support-center',

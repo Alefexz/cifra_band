@@ -11,6 +11,7 @@ class AppDiagnosticsService {
   static final Map<String, Object?> _context = <String, Object?>{};
 
   static void setContext(Map<String, Object?> context) {
+    if (context['auth'] == 'signed_out') clear();
     _context
       ..clear()
       ..addAll(context);
@@ -57,7 +58,13 @@ class AppDiagnosticsService {
 
     for (final entry in input.entries.take(30)) {
       final key = _limit(entry.key, 80);
-      result[key] = _sanitizeValue(entry.value);
+      result[key] =
+          RegExp(
+            r'email|password|token|authorization|secret',
+            caseSensitive: false,
+          ).hasMatch(key)
+          ? '[redacted]'
+          : _sanitizeValue(entry.value);
     }
 
     return result;

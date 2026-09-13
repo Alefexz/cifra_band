@@ -1,6 +1,7 @@
 // lib/features/home/presentation/screens/event_detail_screen.dart
 
 import 'dart:io';
+import 'package:cifra_band/core/services/member_actions_service.dart';
 import 'package:cifra_band/features/songs/domain/entities/song_destination.dart';
 
 import 'package:flutter/material.dart';
@@ -146,31 +147,12 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     final currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser == null || assignment['uid'] != currentUser.uid) return;
 
-    final docRef = FirebaseFirestore.instance
-        .collection('schedules')
-        .doc(widget.scheduleId);
-
     try {
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final snapshot = await transaction.get(docRef);
-        if (!snapshot.exists) return;
-
-        final data = snapshot.data() ?? {};
-        final team = List<dynamic>.from(data['team_assignments'] ?? []);
-        final index = team.indexWhere((item) {
-          if (item is! Map) return false;
-          return item['uid'] == currentUser.uid &&
-              item['role'] == assignment['role'];
-        });
-
-        if (index == -1) return;
-
-        final updatedAssignment = Map<String, dynamic>.from(team[index] as Map);
-        updatedAssignment['status'] = status;
-        updatedAssignment['responded_at'] = Timestamp.now();
-        team[index] = updatedAssignment;
-
-        transaction.update(docRef, {'team_assignments': team});
+      await MemberActionsService.send('schedule', {
+        'scheduleId': widget.scheduleId,
+        'action': 'respond',
+        'role': assignment['role'],
+        'status': status,
       });
 
       final adminUids = await _getAdminUids(churchId);
@@ -319,44 +301,30 @@ class _EventDetailScreenState extends State<EventDetailScreen>
 
   Future<void> _castVote(Map<String, dynamic> song, bool isUpvote) async {
     final uid = FirebaseAuth.instance.currentUser!.uid;
-    final docRef = FirebaseFirestore.instance
-        .collection('schedules')
-        .doc(widget.scheduleId);
-
-    await FirebaseFirestore.instance.runTransaction((transaction) async {
-      final snapshot = await transaction.get(docRef);
-      if (!snapshot.exists) return;
-
-      List<dynamic> suggested = snapshot.data()?['suggested_songs'] ?? [];
-
-      int index = suggested.indexWhere(
-        (s) => s['title'] == song['title'] && s['artist'] == song['artist'],
-      );
-      if (index == -1) return;
-
-      Map<String, dynamic> targetSong = Map<String, dynamic>.from(
-        suggested[index],
-      );
-      List<String> upvotes = List<String>.from(targetSong['upvotes'] ?? []);
-      List<String> downvotes = List<String>.from(targetSong['downvotes'] ?? []);
-
-      bool wasUpvoted = upvotes.contains(uid);
-      bool wasDownvoted = downvotes.contains(uid);
-
-      upvotes.remove(uid);
-      downvotes.remove(uid);
-
-      if (isUpvote) {
-        if (!wasUpvoted) upvotes.add(uid);
-      } else {
-        if (!wasDownvoted) downvotes.add(uid);
-      }
-
-      targetSong['upvotes'] = upvotes;
-      targetSong['downvotes'] = downvotes;
-      suggested[index] = targetSong;
-      transaction.update(docRef, {'suggested_songs': suggested});
-    });
+    final selected = (song[isUpvote ? 'upvotes' : 'downvotes'] as List? ?? [])
+        .contains(uid);
+    try {
+      await MemberActionsService.send('schedule', {
+        'scheduleId': widget.scheduleId,
+        'action': 'vote',
+        'title': song['title'],
+        'artist': song['artist'],
+        'vote': selected
+            ? 'none'
+            : isUpvote
+            ? 'up'
+            : 'down',
+      });
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Nao foi possivel registrar o voto. Tente novamente.',
+            ),
+          ),
+        );
+    }
   }
 
   Future<void> _shareToWhatsApp(

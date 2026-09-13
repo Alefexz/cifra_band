@@ -10,10 +10,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:cifra_band/core/services/official_library_service.dart';
-import 'package:cifra_band/features/songs/data/datasources/song_scraper_datasource.dart';
 import 'package:cifra_band/features/songs/domain/entities/song_entity.dart';
 import 'package:cifra_band/features/songs/presentation/providers/song_providers.dart';
 import '../widgets/logo_loader.dart';
+import '../widgets/song_lookup_dialog.dart';
 import '../../data/music_search_service.dart';
 import '../../domain/music_search_ranking.dart';
 
@@ -486,105 +486,50 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
 
     if (mounted) setState(() => _loadingTrack = track);
 
-    bool snackBarShown = false;
-
-    Timer? coldStartTimer = Timer(const Duration(seconds: 6), () {
-      if (!mounted || _loadingTrack != track) return;
-      snackBarShown = true;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Row(
-            children: [
-              SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2.2,
-                  color: Colors.white,
-                ),
-              ),
-              SizedBox(width: 14),
-              Expanded(
-                child: Text(
-                  '☕ Calma, estamos acordando o servidor... aguarde só um pouquinho!',
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: Colors.blueAccent,
-          duration: Duration(seconds: 60),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-    });
-
-    void clearColdStartWarning() {
-      coldStartTimer.cancel();
-      if (mounted && snackBarShown) {
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      }
-    }
-
     try {
       final uri = Uri.https(_apiHost, '/searchSong', {
         'artist': artist.trim(),
         'track': track.trim(),
       });
-
       final repository = ref.read(songRepositoryProvider);
-      final SongEntity songEntity = await repository.extractSongFromUrl(
-        uri.toString(),
-      );
-      final officialSong = await OfficialLibraryService.findOfficialSong(
-        songEntity.title,
-        songEntity.artist,
-      ).catchError((_) => null);
-
-      clearColdStartWarning();
-
-      _saveToLibraryInvisible(songEntity);
-
-      if (!mounted) return;
-      setState(() => _loadingTrack = null);
-      context.push('/cifra', extra: officialSong?.toSongModel() ?? songEntity);
-    } on TimeoutException {
-      clearColdStartWarning();
-      if (!mounted) return;
-      setState(() => _loadingTrack = null);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('O servidor demorou para responder. Tente de novo.'),
-          backgroundColor: Colors.redAccent,
+      final outcome = await showDialog<SongLookupOutcome>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => SongLookupDialog(
+          title: track,
+          artist: artist,
+          coverUrl: coverUrl,
+          loadSong: () async {
+            final savedOfficial = await OfficialLibraryService.findOfficialSong(
+              track,
+              artist,
+            ).catchError((_) => null);
+            if (savedOfficial != null) return savedOfficial.toSongModel();
+            final song = await repository.extractSongFromUrl(uri.toString());
+            final official = await OfficialLibraryService.findOfficialSong(
+              song.title,
+              song.artist,
+            ).catchError((_) => null);
+            return official?.toSongModel() ?? song;
+          },
         ),
       );
-    } on SongSearchException catch (e) {
-      clearColdStartWarning();
       if (!mounted) return;
-      setState(() => _loadingTrack = null);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.message),
-          backgroundColor: Colors.redAccent,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: 'Suporte',
-            textColor: Colors.white,
-            onPressed: () => context.push('/feedback'),
-          ),
-        ),
-      );
-    } catch (e) {
-      clearColdStartWarning();
-      if (!mounted) return;
-      setState(() => _loadingTrack = null);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Não consegui buscar essa cifra agora. Tente de novo.'),
-          backgroundColor: Colors.redAccent,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      if (outcome?.song case final SongEntity song) {
+        _saveToLibraryInvisible(song);
+        context.push('/cifra', extra: song);
+      } else if (outcome?.reportMessage case final String message) {
+        context.push(
+          '/feedback',
+          extra: {
+            'type': 'bug',
+            'screen': 'Cifra',
+            'message': 'Não consegui abrir "$track" de "$artist".\n$message',
+          },
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _loadingTrack = null);
     }
   }
 
@@ -999,8 +944,12 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   Widget _buildSongsTab() {
     final artistOnly =
         _artist != null &&
-        MusicSearchRanking.normalize(_searchController.text) ==
-            MusicSearchRanking.normalize(_artist!['artistName'].toString());
+        (_artist!['artistIntent'] == true ||
+            MusicSearchRanking.artistIntentScore(
+                  _searchController.text,
+                  _artist!['artistName'].toString(),
+                ) >=
+                750);
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       physics: const BouncingScrollPhysics(),
@@ -1082,7 +1031,14 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
                     ),
                     const SizedBox(height: 5),
                     Text(
-                      'Artista',
+                      _artist!['artistIntent'] == true &&
+                              MusicSearchRanking.artistIntentScore(
+                                    _searchController.text,
+                                    artistName,
+                                  ) <
+                                  1000
+                          ? 'Artista · Correspondência aproximada'
+                          : 'Artista',
                       style: TextStyle(
                         color: Colors.grey.shade500,
                         fontSize: 14,

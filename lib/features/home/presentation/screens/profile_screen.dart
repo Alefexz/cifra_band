@@ -1,6 +1,7 @@
 // lib/features/home/presentation/screens/profile_screen.dart
 
-import 'dart:math';
+import 'package:cifra_band/core/services/member_actions_service.dart';
+import 'package:cifra_band/core/services/push_notification_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -77,6 +78,7 @@ class ProfileScreen extends ConsumerWidget {
       ),
     );
 
+    await PushNotificationService.detachBeforeSignOut();
     await FirebaseAuth.instance.signOut();
 
     if (context.mounted) {
@@ -87,10 +89,7 @@ class ProfileScreen extends ConsumerWidget {
 
   Future<void> _generateFriendCode(BuildContext context, String uid) async {
     try {
-      final code = await _generateUniqueFriendCode();
-      await FirebaseFirestore.instance.collection('users').doc(uid).update({
-        'friendCode': code,
-      });
+      await MemberActionsService.send('profile', {});
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -109,33 +108,6 @@ class ProfileScreen extends ConsumerWidget {
         );
       }
     }
-  }
-
-  Future<String> _generateUniqueFriendCode() async {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    final random = Random.secure();
-
-    for (var attempt = 0; attempt < 10; attempt++) {
-      final code = String.fromCharCodes(
-        Iterable.generate(
-          6,
-          (_) => chars.codeUnitAt(random.nextInt(chars.length)),
-        ),
-      );
-
-      final existing = await FirebaseFirestore.instance
-          .collection('users')
-          .where('friendCode', isEqualTo: code)
-          .limit(1)
-          .get();
-
-      if (existing.docs.isEmpty) return code;
-    }
-
-    final timestampSuffix = DateTime.now().millisecondsSinceEpoch
-        .toRadixString(36)
-        .toUpperCase();
-    return timestampSuffix.substring(timestampSuffix.length - 6);
   }
 
   // ============================================================

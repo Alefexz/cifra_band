@@ -1,6 +1,7 @@
 // lib/features/home/presentation/screens/home_screen.dart
 
 import 'dart:async';
+import 'package:cifra_band/core/services/member_actions_service.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1387,10 +1388,7 @@ class _JoinMinistryBottomSheetState extends State<_JoinMinistryBottomSheet> {
       final memberName = userDoc.data()?['name']?.toString() ?? 'Novo membro';
       final adminId = inviteDoc.data()?['admin_id'];
 
-      await firestore.collection('users').doc(uid).update({
-        'church_id': ministryId,
-        'is_admin': false,
-      });
+      await MemberActionsService.send('join', {'code': pin});
 
       if (adminId is String && adminId.isNotEmpty && adminId != uid) {
         await ApiNotification.notificarNovoMembro([adminId], memberName);

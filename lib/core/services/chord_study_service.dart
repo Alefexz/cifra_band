@@ -106,6 +106,11 @@ class ChordStudyService {
     'Gm7': GuitarChordShape(['3', '5', '3', '3', '3', '3'], label: 'Gm7'),
     'Cadd9': GuitarChordShape(['x', '3', '2', '0', '3', '0'], label: 'Cadd9'),
     'D/F#': GuitarChordShape(['2', 'x', '0', '2', '3', '2'], label: 'D/F#'),
+    'D7/F#': GuitarChordShape(['2', 'x', '0', '2', '1', '2'], label: 'D7/F#'),
+    'Cdim7': GuitarChordShape(['x', '3', '4', '2', '4', 'x'], label: 'Cdim7'),
+    'Am7M': GuitarChordShape(['x', '0', '2', '1', '1', '0'], label: 'Am7M'),
+    'C7(b9)': GuitarChordShape(['x', '3', '2', '3', '2', '3'], label: 'C7(b9)'),
+    'C7(#9)': GuitarChordShape(['x', '3', '2', '3', '4', '3'], label: 'C7(#9)'),
     'C/E': GuitarChordShape(['0', '3', '2', '0', '1', '0'], label: 'C/E'),
     'G/B': GuitarChordShape(['x', '2', '0', '0', '3', '3'], label: 'G/B'),
     'A/C#': GuitarChordShape(['x', '4', '2', '2', '2', '0'], label: 'A/C#'),
@@ -303,19 +308,26 @@ class ChordStudyService {
 
   static GuitarChordShape? guitarShapeFor(String chord) {
     final clean = chord.replaceAll('*', '').trim();
-    final canonical = _canonicalGuitarKey(clean);
-    final exact = _guitarShapes[canonical];
-    if (exact != null) return exact;
-
-    final root = rootOf(clean);
-    final plainMajor = canonical == root;
-    final plainMinor = canonical == '${root}m';
-    if (!plainMajor && !plainMinor) return null;
-
-    final simple = simplifiedName(clean);
-    return _guitarShapes[simple] ??
-        _guitarShapes[TransposerEngine.normalizeKey(simple)] ??
-        _guitarShapes[root];
+    final canonical = clean.replaceAll('maj7', '7M').replaceAll('M7', '7M');
+    final shape = _guitarShapes[canonical];
+    if (shape == null) return null;
+    const tuning = [40, 45, 50, 55, 59, 64];
+    final pitches = <int>[];
+    for (var i = 0; i < 6; i++) {
+      final fret = int.tryParse(shape.positions[i]);
+      if (fret != null) pitches.add(tuning[i] + fret);
+    }
+    final expected = _notesForChord(clean).map(_index).toSet();
+    final actual = pitches.map((p) => p % 12).toSet();
+    if (expected.length != actual.length || !actual.containsAll(expected)) {
+      return null;
+    }
+    final bass = bassOf(clean);
+    if (bass.isNotEmpty &&
+        pitches.reduce((a, b) => a < b ? a : b) % 12 != _index(bass)) {
+      return null;
+    }
+    return shape;
   }
 
   static String simplifiedName(String chord) {
@@ -337,7 +349,7 @@ class ChordStudyService {
   }
 
   static bool isMinorChord(String chord) {
-    return RegExp(r'^[A-G][#b]?m(?!aj)', caseSensitive: false).hasMatch(chord);
+    return RegExp(r'^[A-G][#b]?m(?!aj)').hasMatch(chord);
   }
 
   static String qualityLabel(String chord) {
@@ -353,7 +365,11 @@ class ChordStudyService {
     if (lower.contains('sus4') || RegExp(r'^[A-G][#b]?4').hasMatch(chord)) {
       return 'Suspenso 4';
     }
-    if (_hasMajorSeventh(chord)) return 'Maior com sétima maior';
+    if (_hasMajorSeventh(chord)) {
+      return isMinorChord(chord)
+          ? 'Menor com sétima maior'
+          : 'Maior com sétima maior';
+    }
     if (isMinorChord(chord)) {
       if (lower.contains('7')) return 'Menor com sétima';
       return 'Menor';
@@ -394,10 +410,32 @@ class ChordStudyService {
       intervals.add(11);
     } else if (RegExp(r'7').hasMatch(chord) &&
         !lower.contains('m7(b5)') &&
-        !lower.contains('dim')) {
+        !lower.contains('dim') &&
+        !chord.contains('°') &&
+        !chord.contains('º')) {
       intervals.add(10);
     }
-    if (RegExp(r'(?:add9|9|\(9\))').hasMatch(lower)) intervals.add(14);
+    if (lower.contains('b5')) {
+      intervals.remove(7);
+      intervals.add(6);
+    }
+    if (lower.contains('#5')) {
+      intervals.remove(7);
+      intervals.add(8);
+    }
+    for (final extension in const {9: 14, 11: 17, 13: 21}.entries) {
+      final match = RegExp(
+        '([b#]?)${extension.key}(?![0-9])',
+      ).firstMatch(lower);
+      if (match != null) {
+        final alteration = match.group(1) == 'b'
+            ? -1
+            : match.group(1) == '#'
+            ? 1
+            : 0;
+        intervals.add(extension.value + alteration);
+      }
+    }
     if (RegExp(r'(^|[^0-9])6([^0-9]|$)').hasMatch(lower)) intervals.add(9);
 
     final preferFlats = root.contains('b');
@@ -417,29 +455,6 @@ class ChordStudyService {
       );
     }
     return _unique(notes);
-  }
-
-  static String _canonicalGuitarKey(String chord) {
-    final root = rootOf(chord);
-    if (root.isEmpty) return chord;
-    final bass = bassOf(chord);
-    final lower = chord.toLowerCase();
-    if (bass.isNotEmpty) {
-      return '$root${isMinorChord(chord) ? 'm' : ''}/$bass';
-    }
-    if (lower.contains('m7(b5)') || lower.contains('ø')) return '${root}m7(b5)';
-    if (_hasMajorSeventh(chord)) return '${root}7M';
-    if (isMinorChord(chord) && lower.contains('7')) return '${root}m7';
-    if (lower.contains('7')) return '${root}7';
-    if (isMinorChord(chord)) return '${root}m';
-    if (lower.contains('add9') || RegExp(r'^[A-G][#b]?9').hasMatch(chord)) {
-      return '${root}add9';
-    }
-    if (lower.contains('sus2')) return '${root}sus2';
-    if (lower.contains('sus4') || RegExp(r'^[A-G][#b]?4').hasMatch(chord)) {
-      return '${root}sus4';
-    }
-    return root;
   }
 
   static bool _hasMajorSeventh(String chord) {

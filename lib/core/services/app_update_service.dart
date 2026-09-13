@@ -10,6 +10,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_diagnostics_service.dart';
+import 'apk_downloader.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class AppUpdateInfo {
   const AppUpdateInfo({
@@ -19,6 +21,8 @@ class AppUpdateInfo {
     required this.updateRequired,
     required this.apkUrl,
     required this.releaseNotes,
+    this.apkSha256,
+    this.apkBytes,
   });
 
   final String latestVersion;
@@ -27,6 +31,8 @@ class AppUpdateInfo {
   final bool updateRequired;
   final String apkUrl;
   final String releaseNotes;
+  final String? apkSha256;
+  final int? apkBytes;
 
   bool shouldShowFor(int currentBuild) {
     return latestBuild > currentBuild || minimumBuild > currentBuild;
@@ -44,6 +50,8 @@ class AppUpdateInfo {
       updateRequired: json['updateRequired'] == true,
       apkUrl: '${json['apkUrl'] ?? ''}'.trim(),
       releaseNotes: '${json['releaseNotes'] ?? ''}'.trim(),
+      apkSha256: json['apkSha256'] as String?,
+      apkBytes: int.tryParse('${json['apkBytes']}'),
     );
   }
 
@@ -73,6 +81,7 @@ class AppUpdateService {
 
   static bool _checking = false;
   static bool _dialogShown = false;
+  static bool _downloading = false;
 
   static Future<void> checkForUpdate(BuildContext context) async {
     if (_checking || _dialogShown) return;
@@ -93,6 +102,30 @@ class AppUpdateService {
         },
       );
 
+      final prefs = await SharedPreferences.getInstance();
+      final stored = prefs.getString('required_app_update');
+      if (stored != null) {
+        try {
+          final cached = AppUpdateInfo.fromJson(
+            jsonDecode(stored) as Map<String, dynamic>,
+          );
+          if (cached.shouldShowFor(currentBuild) &&
+              cached.isForcedFor(currentBuild) &&
+              context.mounted) {
+            _dialogShown = true;
+            await _showUpdateDialog(
+              context: context,
+              packageInfo: packageInfo,
+              updateInfo: cached,
+              forceUpdate: true,
+            );
+            return;
+          }
+          await prefs.remove('required_app_update');
+        } on FormatException {
+          await prefs.remove('required_app_update');
+        }
+      }
       final response = await _fetchVersionWithRetry();
       if (response == null) return;
 
@@ -110,6 +143,14 @@ class AppUpdateService {
       if (decoded is! Map<String, dynamic>) return;
 
       final updateInfo = AppUpdateInfo.fromJson(decoded);
+      if (updateInfo.latestBuild <= 0 ||
+          updateInfo.minimumBuild > updateInfo.latestBuild ||
+          Uri.tryParse(updateInfo.apkUrl)?.scheme != 'https')
+        return;
+      if (updateInfo.shouldShowFor(currentBuild) &&
+          updateInfo.isForcedFor(currentBuild)) {
+        await prefs.setString('required_app_update', jsonEncode(decoded));
+      }
 
       debugPrint(
         'Versao remota: ${updateInfo.latestVersion}+${updateInfo.latestBuild}',
@@ -149,6 +190,7 @@ class AppUpdateService {
       );
     } finally {
       _checking = false;
+      if (!_downloading) _dialogShown = false;
     }
   }
 
@@ -252,6 +294,7 @@ class AppUpdateService {
                 ),
               FilledButton(
                 onPressed: () {
+                  _downloading = true;
                   final navigator = Navigator.of(
                     dialogContext,
                     rootNavigator: true,
@@ -288,12 +331,19 @@ class AppUpdateService {
       return;
     }
 
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) =>
-          _ApkDownloadDialog(updateInfo: updateInfo, forceUpdate: forceUpdate),
-    );
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _ApkDownloadDialog(
+          updateInfo: updateInfo,
+          forceUpdate: forceUpdate,
+        ),
+      );
+    } finally {
+      _downloading = false;
+      _dialogShown = false;
+    }
   }
 
   static Future<File> _downloadApk({
@@ -301,65 +351,19 @@ class AppUpdateService {
     required ValueChanged<double> onProgress,
   }) async {
     final uri = await _resolveApkDownloadUri(updateInfo);
-    final request = http.Request('GET', uri);
-    final client = http.Client();
-    final response = await client
-        .send(request)
-        .timeout(const Duration(seconds: 30));
-
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      AppDiagnosticsService.log(
-        'Download da APK falhou por HTTP',
-        level: 'error',
-        context: {'statusCode': response.statusCode},
-      );
-      throw HttpException('Download retornou HTTP ${response.statusCode}.');
-    }
-
-    final contentType = response.headers['content-type'] ?? '';
-    if (contentType.contains('text/html')) {
-      AppDiagnosticsService.log(
-        'Link de atualizacao retornou HTML em vez de APK',
-        level: 'error',
-        context: {'contentType': contentType, 'url': '$uri'},
-      );
-      throw const FormatException('O link recebido nao aponta para uma APK.');
-    }
-
     final tempDirectory = await getTemporaryDirectory();
     final apkFile = File(
       '${tempDirectory.path}/cifra-band-${updateInfo.latestVersion}-build-${updateInfo.latestBuild}.apk',
     );
 
-    final output = apkFile.openWrite();
-    var receivedBytes = 0;
-    final totalBytes = response.contentLength ?? 0;
-
-    try {
-      await for (final chunk in response.stream) {
-        receivedBytes += chunk.length;
-        output.add(chunk);
-
-        if (totalBytes > 0) {
-          onProgress(receivedBytes / totalBytes);
-        }
-      }
-    } finally {
-      await output.close();
-      client.close();
-    }
-
-    if (await apkFile.length() == 0) {
-      AppDiagnosticsService.log(
-        'APK baixada ficou vazia',
-        level: 'error',
-        context: {'path': apkFile.path},
-      );
-      throw const FileSystemException('APK baixada vazia.');
-    }
-
-    onProgress(1);
-    return apkFile;
+    return ApkDownloader.download(
+      client: http.Client(),
+      uri: uri,
+      destination: apkFile,
+      onProgress: onProgress,
+      expectedSha256: updateInfo.apkSha256,
+      expectedBytes: updateInfo.apkBytes,
+    );
   }
 
   static Future<Uri> _resolveApkDownloadUri(AppUpdateInfo updateInfo) async {
@@ -442,6 +446,7 @@ class _ApkDownloadDialogState extends State<_ApkDownloadDialog> {
   String _status = 'Preparando download...';
   bool _failed = false;
   bool _started = false;
+  File? _downloaded;
 
   @override
   void initState() {
@@ -454,18 +459,21 @@ class _ApkDownloadDialogState extends State<_ApkDownloadDialog> {
     _started = true;
 
     try {
-      final apkFile = await AppUpdateService._downloadApk(
-        updateInfo: widget.updateInfo,
-        onProgress: (progress) {
-          if (!mounted) return;
-          setState(() {
-            _progress = progress.clamp(0, 1);
-            _status = _progress >= 1
-                ? 'Download concluido. Abrindo instalador...'
-                : 'Baixando atualizacao ${(_progress * 100).clamp(0, 99).round()}%';
-          });
-        },
-      );
+      final apkFile =
+          _downloaded ??
+          await AppUpdateService._downloadApk(
+            updateInfo: widget.updateInfo,
+            onProgress: (progress) {
+              if (!mounted) return;
+              setState(() {
+                _progress = progress.clamp(0, 1);
+                _status = _progress >= 1
+                    ? 'Download concluido. Abrindo instalador...'
+                    : 'Baixando atualizacao ${(_progress * 100).clamp(0, 99).round()}%';
+              });
+            },
+          );
+      _downloaded = apkFile;
 
       if (!mounted) return;
       setState(() {
@@ -547,7 +555,7 @@ class _ApkDownloadDialogState extends State<_ApkDownloadDialog> {
               onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
               child: const Text('Fechar'),
             ),
-          if (_failed)
+          if (_failed || (widget.forceUpdate && _downloaded != null))
             FilledButton(
               onPressed: () {
                 setState(() {
@@ -558,7 +566,9 @@ class _ApkDownloadDialogState extends State<_ApkDownloadDialog> {
                 });
                 unawaited(_startDownload());
               },
-              child: const Text('Tentar novamente'),
+              child: Text(
+                _downloaded != null ? 'Abrir instalador' : 'Tentar novamente',
+              ),
             ),
         ],
       ),
