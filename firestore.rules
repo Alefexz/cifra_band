@@ -198,10 +198,6 @@ service cloud.firestore {
       allow update: if isAdminForChurch(ministryId);
       allow delete: if false;
 
-      match /private/{documentId} {
-        allow read, write: if isSelf(userId) && documentId == 'push';
-      }
-
       match /official_songs/{songId} {
         allow read: if sameChurch(ministryId);
         allow create, update, delete: if isAdminForChurch(ministryId);
