@@ -14,6 +14,8 @@ import 'package:cifra_band/core/services/official_library_service.dart';
 import 'package:cifra_band/core/services/played_history_service.dart';
 import 'package:cifra_band/core/services/song_annotation_service.dart';
 import '../../data/models/song_model.dart';
+import '../widgets/chord_diagrams/guitar_chord_diagram.dart';
+import '../widgets/chord_diagrams/keyboard_chord_diagram.dart';
 import '../../domain/transposer_engine.dart';
 import '../../domain/song_content_quality.dart';
 import '../../data/datasources/song_scraper_datasource.dart';
@@ -73,12 +75,13 @@ class _CifraScreenState extends State<CifraScreen> {
       );
       if (mounted) context.push('/cifra', extra: complete);
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Não foi possível carregar outra versão: $error'),
           ),
         );
+      }
     } finally {
       if (mounted) setState(() => _repairingContent = false);
     }
@@ -107,14 +110,16 @@ class _CifraScreenState extends State<CifraScreen> {
       _isStageMode ? Colors.white : const Color(0xFF101828);
   Color get _secondaryText =>
       _isStageMode ? Colors.grey.shade500 : const Color(0xFF667085);
-  Color get _bodyText =>
-      _isStageMode ? Colors.white.withOpacity(0.92) : const Color(0xFF1F2937);
+  Color get _bodyText => _isStageMode
+      ? Colors.white.withValues(alpha: 0.92)
+      : const Color(0xFF1F2937);
   Color get _mutedText =>
       _isStageMode ? Colors.grey.shade500 : const Color(0xFF6B7280);
-  Color get _dividerColor =>
-      _isStageMode ? Colors.white.withOpacity(0.1) : const Color(0xFFE5E7EB);
+  Color get _dividerColor => _isStageMode
+      ? Colors.white.withValues(alpha: 0.1)
+      : const Color(0xFFE5E7EB);
   Color get _headerBackground => _isStageMode
-      ? Colors.blueAccent.withOpacity(0.08)
+      ? Colors.blueAccent.withValues(alpha: 0.08)
       : const Color(0xFFEAF2FF);
 
   @override
@@ -260,12 +265,13 @@ class _CifraScreenState extends State<CifraScreen> {
 
   void _changeSpeed() {
     setState(() {
-      if (_scrollSpeed == 1.0)
+      if (_scrollSpeed == 1.0) {
         _scrollSpeed = 1.5;
-      else if (_scrollSpeed == 1.5)
+      } else if (_scrollSpeed == 1.5) {
         _scrollSpeed = 2.0;
-      else
+      } else {
         _scrollSpeed = 1.0;
+      }
     });
   }
 
@@ -1125,97 +1131,102 @@ class _CifraScreenState extends State<CifraScreen> {
       isScrollControlled: true,
       builder: (context) {
         return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(context).height * .9,
+          ),
           padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
           decoration: BoxDecoration(
             color: _modalSurfaceColor,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        insight.chord,
-                        style: TextStyle(
-                          color: _primaryText,
-                          fontSize: 26,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: Icon(Icons.close_rounded, color: _secondaryText),
-                    ),
-                  ],
-                ),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _StudyPill('Grau ${insight.degree}'),
-                    _StudyPill(insight.roman),
-                    _StudyPill(insight.function),
-                    _StudyPill(insight.quality),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                _buildInstrumentDiagram(insight, compact: false),
-                const SizedBox(height: 16),
-                Text(
-                  insight.notes.isEmpty
-                      ? 'Notas ainda não identificadas para este acorde.'
-                      : 'Notas: ${insight.notes.join(' - ')}',
-                  style: TextStyle(
-                    color: _primaryText,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  insight.explanation,
-                  style: TextStyle(
-                    color: _secondaryText,
-                    height: 1.42,
-                    fontSize: 14,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  children: _CifraInstrument.values.map((instrument) {
-                    final selected = instrument == _selectedInstrument;
-                    return Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 4),
-                        child: ChoiceChip(
-                          selected: selected,
-                          label: Center(child: Text(instrument.label)),
-                          avatar: Icon(instrument.icon, size: 16),
-                          onSelected: (_) async {
-                            await _setInstrument(instrument);
-                            if (context.mounted) Navigator.pop(context);
-                            _showChordDetailSheet(chord);
-                          },
-                          selectedColor: Colors.blueAccent.withValues(
-                            alpha: 0.18,
-                          ),
-                          backgroundColor: _controlColor,
-                          labelStyle: TextStyle(
-                            color: selected
-                                ? Colors.blueAccent
-                                : _secondaryText,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          insight.chord,
+                          style: TextStyle(
+                            color: _primaryText,
+                            fontSize: 26,
                             fontWeight: FontWeight.w900,
                           ),
                         ),
                       ),
-                    );
-                  }).toList(),
-                ),
-              ],
+                      IconButton(
+                        onPressed: () => Navigator.pop(context),
+                        icon: Icon(Icons.close_rounded, color: _secondaryText),
+                      ),
+                    ],
+                  ),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _StudyPill('Grau ${insight.degree}'),
+                      _StudyPill(insight.roman),
+                      _StudyPill(insight.function),
+                      _StudyPill(insight.quality),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  _buildInstrumentDiagram(insight, compact: false),
+                  const SizedBox(height: 16),
+                  Text(
+                    insight.notes.isEmpty
+                        ? 'Notas ainda não identificadas para este acorde.'
+                        : 'Notas: ${insight.notes.join(' - ')}',
+                    style: TextStyle(
+                      color: _primaryText,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    insight.explanation,
+                    style: TextStyle(
+                      color: _secondaryText,
+                      height: 1.42,
+                      fontSize: 14,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: _CifraInstrument.values.map((instrument) {
+                      final selected = instrument == _selectedInstrument;
+                      return Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: ChoiceChip(
+                            selected: selected,
+                            label: Center(child: Text(instrument.label)),
+                            avatar: Icon(instrument.icon, size: 16),
+                            onSelected: (_) async {
+                              await _setInstrument(instrument);
+                              if (context.mounted) Navigator.pop(context);
+                              _showChordDetailSheet(chord);
+                            },
+                            selectedColor: Colors.blueAccent.withValues(
+                              alpha: 0.18,
+                            ),
+                            backgroundColor: _controlColor,
+                            labelStyle: TextStyle(
+                              color: selected
+                                  ? Colors.blueAccent
+                                  : _secondaryText,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -1272,17 +1283,13 @@ class _CifraScreenState extends State<CifraScreen> {
           ),
           if (shape != null) ...[
             const SizedBox(height: 10),
-            SizedBox(
-              height: compact ? 92 : 132,
-              child: CustomPaint(
-                painter: _GuitarChordPainter(
-                  shape: shape,
-                  color: Colors.orangeAccent,
-                  textColor: _primaryText,
-                  lineColor: _dividerColor,
-                ),
-                child: const SizedBox.expand(),
-              ),
+            GuitarChordDiagram(
+              shape: shape,
+              notes: insight.notes,
+              compact: compact,
+              color: Colors.orangeAccent,
+              textColor: _primaryText,
+              lineColor: _dividerColor,
             ),
           ] else ...[
             const SizedBox(height: 8),
@@ -1340,17 +1347,12 @@ class _CifraScreenState extends State<CifraScreen> {
             ],
           ),
           const SizedBox(height: 10),
-          SizedBox(
-            height: compact ? 72 : 104,
-            child: CustomPaint(
-              painter: _KeyboardChordPainter(
-                notes: insight.notes,
-                color: Colors.greenAccent,
-                textColor: _primaryText,
-                lineColor: _dividerColor,
-              ),
-              child: const SizedBox.expand(),
-            ),
+          KeyboardChordDiagram(
+            notes: insight.notes,
+            compact: compact,
+            color: Colors.greenAccent,
+            textColor: _primaryText,
+            lineColor: _dividerColor,
           ),
         ],
       ),
@@ -1407,7 +1409,7 @@ class _CifraScreenState extends State<CifraScreen> {
                               : 'Modo claro para leitura normal da cifra.',
                           style: TextStyle(color: _secondaryText, fontSize: 12),
                         ),
-                        activeColor: Colors.blueAccent,
+                        activeThumbColor: Colors.blueAccent,
                         contentPadding: EdgeInsets.zero,
                         value: _isStageMode,
                         onChanged: (val) async {
@@ -1511,7 +1513,7 @@ class _CifraScreenState extends State<CifraScreen> {
                               fontSize: 12,
                             ),
                           ),
-                          activeColor: Colors.orangeAccent,
+                          activeThumbColor: Colors.orangeAccent,
                           contentPadding: EdgeInsets.zero,
                           value: _isCapoActive,
                           onChanged: (val) {
@@ -1531,7 +1533,7 @@ class _CifraScreenState extends State<CifraScreen> {
                           'Remove extensoes comuns e deixa os acordes mais diretos.',
                           style: TextStyle(color: _secondaryText, fontSize: 12),
                         ),
-                        activeColor: Colors.greenAccent,
+                        activeThumbColor: Colors.greenAccent,
                         contentPadding: EdgeInsets.zero,
                         value: _isSimplified,
                         onChanged: (val) {
@@ -1545,7 +1547,7 @@ class _CifraScreenState extends State<CifraScreen> {
                           'Mostrar Acordes',
                           style: TextStyle(color: _primaryText, fontSize: 16),
                         ),
-                        activeColor: Colors.blueAccent,
+                        activeThumbColor: Colors.blueAccent,
                         contentPadding: EdgeInsets.zero,
                         value: _showChords,
                         onChanged: (val) {
@@ -1559,7 +1561,7 @@ class _CifraScreenState extends State<CifraScreen> {
                           'Mostrar Tablaturas',
                           style: TextStyle(color: _primaryText, fontSize: 16),
                         ),
-                        activeColor: Colors.blueAccent,
+                        activeThumbColor: Colors.blueAccent,
                         contentPadding: EdgeInsets.zero,
                         value: _showTabs,
                         onChanged: (val) {
@@ -1840,7 +1842,7 @@ class _CifraScreenState extends State<CifraScreen> {
         boxShadow: [
           if (!_isStageMode)
             BoxShadow(
-              color: Colors.black.withOpacity(0.08),
+              color: Colors.black.withValues(alpha: 0.08),
               blurRadius: 18,
               offset: const Offset(0, 8),
             ),
@@ -1956,7 +1958,7 @@ class _CifraScreenState extends State<CifraScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
               decoration: BoxDecoration(
                 color: _scrollSpeed > 1.0
-                    ? Colors.blueAccent.withOpacity(0.2)
+                    ? Colors.blueAccent.withValues(alpha: 0.2)
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -2040,7 +2042,7 @@ class _CifraScreenState extends State<CifraScreen> {
           child: Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Colors.blueAccent.withOpacity(0.1),
+              color: Colors.blueAccent.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Icon(
@@ -2092,7 +2094,7 @@ class _CifraScreenState extends State<CifraScreen> {
                 height: 48,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: Colors.greenAccent.withOpacity(0.1),
+                  color: Colors.greenAccent.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -2110,7 +2112,7 @@ class _CifraScreenState extends State<CifraScreen> {
                 height: 48,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: Colors.orangeAccent.withOpacity(0.1),
+                  color: Colors.orangeAccent.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: const Icon(
@@ -2128,7 +2130,7 @@ class _CifraScreenState extends State<CifraScreen> {
                 height: 48,
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
-                  color: Colors.blueAccent.withOpacity(0.1),
+                  color: Colors.blueAccent.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
@@ -2155,8 +2157,8 @@ class _CifraScreenState extends State<CifraScreen> {
   }) {
     final foreground = selected ? color : _secondaryText;
     final background = selected
-        ? color.withOpacity(0.14)
-        : (_isStageMode ? Colors.white.withOpacity(0.06) : Colors.white);
+        ? color.withValues(alpha: 0.14)
+        : (_isStageMode ? Colors.white.withValues(alpha: 0.06) : Colors.white);
 
     return Material(
       color: Colors.transparent,
@@ -2169,7 +2171,7 @@ class _CifraScreenState extends State<CifraScreen> {
           decoration: BoxDecoration(
             color: background,
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: foreground.withOpacity(0.18)),
+            border: Border.all(color: foreground.withValues(alpha: 0.18)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -2319,7 +2321,9 @@ class _CifraScreenState extends State<CifraScreen> {
                         ActionChip(
                           avatar: const Icon(Icons.play_circle_outline_rounded),
                           label: const Text('Referência'),
-                          backgroundColor: Colors.blueAccent.withOpacity(0.14),
+                          backgroundColor: Colors.blueAccent.withValues(
+                            alpha: 0.14,
+                          ),
                           labelStyle: const TextStyle(color: Colors.blueAccent),
                           onPressed: _openReferenceUrl,
                         ),
@@ -2330,7 +2334,9 @@ class _CifraScreenState extends State<CifraScreen> {
                             color: Colors.orange,
                           ),
                           label: Text('${widget.song.bpm} BPM'),
-                          backgroundColor: Colors.orange.withOpacity(0.12),
+                          backgroundColor: Colors.orange.withValues(
+                            alpha: 0.12,
+                          ),
                           labelStyle: const TextStyle(color: Colors.orange),
                         ),
                       if (widget.song.rehearsalNotes?.trim().isNotEmpty ??
@@ -2342,7 +2348,7 @@ class _CifraScreenState extends State<CifraScreen> {
                           ),
                           label: Text(widget.song.rehearsalNotes!),
                           backgroundColor: _isStageMode
-                              ? Colors.white.withOpacity(0.06)
+                              ? Colors.white.withValues(alpha: 0.06)
                               : Colors.white,
                           labelStyle: TextStyle(color: _secondaryText),
                         ),
@@ -2408,14 +2414,15 @@ class _CifraScreenState extends State<CifraScreen> {
           RegExp(
             r'^(?:\[Tab\b|Parte\s+\d+\s+de\s+\d+)',
             caseSensitive: false,
-          ).hasMatch(line.trim()))
+          ).hasMatch(line.trim())) {
         continue;
+      }
       if (line.trim().isEmpty) {
         widgets.add(SizedBox(height: _fontSize * 0.95));
         continue;
       }
       if (TransposerEngine.isTabLine(line)) {
-        if (_showTabs)
+        if (_showTabs) {
           widgets.add(
             Padding(
               padding: const EdgeInsets.symmetric(vertical: 1),
@@ -2431,6 +2438,7 @@ class _CifraScreenState extends State<CifraScreen> {
               ),
             ),
           );
+        }
         continue;
       }
       if (TransposerEngine.isHeaderLine(line)) {
@@ -2448,7 +2456,7 @@ class _CifraScreenState extends State<CifraScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(
                 color: isActiveSection
-                    ? Colors.redAccent.withOpacity(0.13)
+                    ? Colors.redAccent.withValues(alpha: 0.13)
                     : _headerBackground,
                 borderRadius: BorderRadius.circular(10),
                 border: Border(
@@ -2503,7 +2511,7 @@ class _CifraScreenState extends State<CifraScreen> {
         continue;
       }
       if (TransposerEngine.isChordLine(line)) {
-        if (_showChords)
+        if (_showChords) {
           widgets.add(
             Padding(
               padding: EdgeInsets.only(top: _fontSize * 0.35),
@@ -2521,6 +2529,7 @@ class _CifraScreenState extends State<CifraScreen> {
               ),
             ),
           );
+        }
         continue;
       }
 
@@ -2674,235 +2683,6 @@ extension _CifraInstrumentX on _CifraInstrument {
       'keyboard' => _CifraInstrument.keyboard,
       _ => _CifraInstrument.guitar,
     };
-  }
-}
-
-class _GuitarChordPainter extends CustomPainter {
-  const _GuitarChordPainter({
-    required this.shape,
-    required this.color,
-    required this.textColor,
-    required this.lineColor,
-  });
-
-  final GuitarChordShape shape;
-  final Color color;
-  final Color textColor;
-  final Color lineColor;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = lineColor
-      ..strokeWidth = 1.4
-      ..style = PaintingStyle.stroke;
-    final markerPaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-    final strings = 6;
-    final frets = 5;
-    final left = size.width * 0.12;
-    final right = size.width * 0.88;
-    final top = size.height * 0.16;
-    final bottom = size.height * 0.84;
-    final stringGap = (right - left) / (strings - 1);
-    final fretGap = (bottom - top) / frets;
-
-    for (var i = 0; i < strings; i++) {
-      final x = left + stringGap * i;
-      canvas.drawLine(Offset(x, top), Offset(x, bottom), paint);
-    }
-
-    for (var i = 0; i <= frets; i++) {
-      final y = top + fretGap * i;
-      canvas.drawLine(Offset(left, y), Offset(right, y), paint);
-    }
-
-    final nutPaint = Paint()
-      ..color = textColor.withValues(alpha: 0.82)
-      ..strokeWidth = 3;
-    canvas.drawLine(Offset(left, top), Offset(right, top), nutPaint);
-
-    final positions = shape.positions;
-    final baseFret = shape.baseFret;
-    if (baseFret > 1) {
-      _drawCenteredText(
-        canvas,
-        '$baseFretª',
-        Offset(left - 20, top + fretGap * 0.5),
-        textColor.withValues(alpha: 0.78),
-        10,
-        FontWeight.w900,
-      );
-    }
-
-    for (var i = 0; i < positions.length && i < strings; i++) {
-      final value = positions[i];
-      final x = left + stringGap * i;
-      if (value == 'x' || value == '0') {
-        _drawCenteredText(
-          canvas,
-          value,
-          Offset(x, top - 13),
-          textColor.withValues(alpha: value == 'x' ? 0.62 : 0.92),
-          11,
-          FontWeight.w900,
-        );
-        continue;
-      }
-
-      final fret = int.tryParse(value) ?? 1;
-      final normalizedFret = baseFret > 1 ? fret - baseFret + 1 : fret;
-      if (normalizedFret < 1 || normalizedFret > frets) continue;
-      final y = top + fretGap * (normalizedFret - 0.5);
-      canvas.drawCircle(Offset(x, y), size.height * 0.055, markerPaint);
-    }
-  }
-
-  void _drawCenteredText(
-    Canvas canvas,
-    String value,
-    Offset center,
-    Color color,
-    double fontSize,
-    FontWeight weight,
-  ) {
-    final painter = TextPainter(
-      text: TextSpan(
-        text: value,
-        style: TextStyle(color: color, fontSize: fontSize, fontWeight: weight),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    painter.paint(
-      canvas,
-      Offset(center.dx - painter.width / 2, center.dy - painter.height / 2),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _GuitarChordPainter oldDelegate) {
-    return oldDelegate.shape.positions.join(',') != shape.positions.join(',') ||
-        oldDelegate.shape.label != shape.label ||
-        oldDelegate.color != color ||
-        oldDelegate.textColor != textColor ||
-        oldDelegate.lineColor != lineColor;
-  }
-}
-
-class _KeyboardChordPainter extends CustomPainter {
-  const _KeyboardChordPainter({
-    required this.notes,
-    required this.color,
-    required this.textColor,
-    required this.lineColor,
-  });
-
-  static const _whiteNotes = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
-  static const _blackNotes = {0: 'C#', 1: 'D#', 3: 'F#', 4: 'G#', 5: 'A#'};
-
-  final List<String> notes;
-  final Color color;
-  final Color textColor;
-  final Color lineColor;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final highlighted = notes.map(_normalize).toSet();
-    final whiteWidth = size.width / _whiteNotes.length;
-    final whitePaint = Paint()..color = Colors.white.withValues(alpha: 0.92);
-    final blackPaint = Paint()..color = const Color(0xFF111827);
-    final linePaint = Paint()
-      ..color = lineColor
-      ..strokeWidth = 1;
-    final highlightPaint = Paint()..color = color.withValues(alpha: 0.72);
-
-    for (var i = 0; i < _whiteNotes.length; i++) {
-      final rect = Rect.fromLTWH(i * whiteWidth, 0, whiteWidth, size.height);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect.deflate(1), const Radius.circular(6)),
-        whitePaint,
-      );
-      canvas.drawRect(rect, linePaint);
-      if (highlighted.contains(_whiteNotes[i])) {
-        canvas.drawCircle(
-          Offset(rect.center.dx, size.height * 0.72),
-          size.height * 0.11,
-          highlightPaint,
-        );
-        _drawCenteredText(
-          canvas,
-          _whiteNotes[i],
-          Offset(rect.center.dx, size.height * 0.9),
-          Colors.black,
-          10,
-        );
-      }
-    }
-
-    _blackNotes.forEach((whiteIndex, note) {
-      final x = (whiteIndex + 1) * whiteWidth - whiteWidth * 0.25;
-      final rect = Rect.fromLTWH(x, 0, whiteWidth * 0.5, size.height * 0.62);
-      canvas.drawRRect(
-        RRect.fromRectAndRadius(rect, const Radius.circular(5)),
-        blackPaint,
-      );
-      if (highlighted.contains(note)) {
-        canvas.drawCircle(
-          Offset(rect.center.dx, rect.bottom - size.height * 0.16),
-          size.height * 0.095,
-          highlightPaint,
-        );
-        _drawCenteredText(
-          canvas,
-          note,
-          Offset(rect.center.dx, rect.bottom - size.height * 0.32),
-          Colors.white,
-          9,
-        );
-      }
-    });
-  }
-
-  String _normalize(String note) {
-    return note
-        .replaceAll('Db', 'C#')
-        .replaceAll('Eb', 'D#')
-        .replaceAll('Gb', 'F#')
-        .replaceAll('Ab', 'G#')
-        .replaceAll('Bb', 'A#');
-  }
-
-  void _drawCenteredText(
-    Canvas canvas,
-    String value,
-    Offset center,
-    Color color,
-    double fontSize,
-  ) {
-    final painter = TextPainter(
-      text: TextSpan(
-        text: value,
-        style: TextStyle(
-          color: color,
-          fontSize: fontSize,
-          fontWeight: FontWeight.w900,
-        ),
-      ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    painter.paint(
-      canvas,
-      Offset(center.dx - painter.width / 2, center.dy - painter.height / 2),
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant _KeyboardChordPainter oldDelegate) {
-    return oldDelegate.notes.join(',') != notes.join(',') ||
-        oldDelegate.color != color ||
-        oldDelegate.textColor != textColor ||
-        oldDelegate.lineColor != lineColor;
   }
 }
 
