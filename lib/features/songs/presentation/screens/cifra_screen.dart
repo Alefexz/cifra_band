@@ -14,6 +14,7 @@ import 'package:cifra_band/core/services/official_library_service.dart';
 import 'package:cifra_band/core/services/played_history_service.dart';
 import 'package:cifra_band/core/services/song_annotation_service.dart';
 import '../../data/models/song_model.dart';
+import '../../../setlist/presentation/widgets/add_to_setlist_sheet.dart';
 import '../widgets/chord_diagrams/guitar_chord_diagram.dart';
 import '../widgets/chord_diagrams/keyboard_chord_diagram.dart';
 import '../../domain/transposer_engine.dart';
@@ -160,12 +161,6 @@ class _CifraScreenState extends State<CifraScreen> {
       _isStageMode = saved ?? widget.embedded;
       _selectedInstrument = _CifraInstrumentX.fromStorage(savedInstrument);
     });
-  }
-
-  Future<void> _toggleStageMode() async {
-    setState(() => _isStageMode = !_isStageMode);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('cifra_stage_mode', _isStageMode);
   }
 
   Future<void> _setInstrument(_CifraInstrument instrument) async {
@@ -1879,10 +1874,13 @@ class _CifraScreenState extends State<CifraScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    'Tom',
-                    maxLines: 1,
-                    style: TextStyle(color: _secondaryText, fontSize: 9),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      'Tom',
+                      maxLines: 1,
+                      style: TextStyle(color: _secondaryText, fontSize: 9),
+                    ),
                   ),
                   FittedBox(
                     fit: BoxFit.scaleDown,
@@ -2033,116 +2031,64 @@ class _CifraScreenState extends State<CifraScreen> {
     );
   }
 
-  Widget _buildTitleAndActionsBar() {
-    if (widget.embedded) {
-      return Align(
-        alignment: Alignment.centerRight,
-        child: InkWell(
-          onTap: _toggleFavorite,
-          child: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(
-              color: Colors.blueAccent.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Icon(
-              _isFavorite
-                  ? Icons.favorite_rounded
-                  : Icons.favorite_border_rounded,
-              color: _isFavorite ? Colors.redAccent : Colors.blueAccent,
-              size: 22,
-            ),
-          ),
-        ),
-      );
+  Future<void> _addCurrentToSetlist() async {
+    final song = SongModel(
+      id: widget.song.id,
+      title: widget.song.title,
+      artist: widget.song.artist,
+      originalKey: _currentPitch,
+      shapeKey: _isCapoActive ? _currentShape : _currentPitch,
+      capo: _isCapoActive ? _safeCapo : '',
+      content: _displayedContent,
+      url: widget.song.url,
+      referenceUrl: widget.song.referenceUrl,
+      bpm: widget.song.bpm,
+      rehearsalNotes: widget.song.rehearsalNotes,
+    );
+    final message = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => AddToSetlistSheet(song: song),
+    );
+    if (mounted && message != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
     }
+  }
 
+  Widget _buildTitleAndActionsBar() {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        InkWell(
-          onTap: () => context.pop(),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.blueAccent,
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.arrow_back_rounded, color: Colors.white, size: 18),
-                SizedBox(width: 4),
-                Text(
-                  'Voltar',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
+        if (!widget.embedded)
+          IconButton(
+            tooltip: 'Voltar',
+            onPressed: () => context.pop(),
+            icon: Icon(Icons.arrow_back_rounded, color: _primaryText),
+          ),
+        const Spacer(),
+        IconButton(
+          tooltip: 'Adicionar à setlist',
+          onPressed: _addCurrentToSetlist,
+          icon: const Icon(Icons.add_rounded, color: Colors.greenAccent),
+        ),
+        IconButton(
+          tooltip: 'Reportar problema nesta cifra',
+          onPressed: _reportWrongChord,
+          icon: const Icon(
+            Icons.report_problem_outlined,
+            color: Colors.orangeAccent,
           ),
         ),
-
-        Row(
-          children: [
-            InkWell(
-              onTap: _saveOfficialVersion,
-              child: Container(
-                width: 48,
-                height: 48,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: Colors.greenAccent.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.library_add_check_rounded,
-                  color: Colors.greenAccent,
-                  size: 21,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            InkWell(
-              onTap: _reportWrongChord,
-              child: Container(
-                width: 48,
-                height: 48,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: Colors.orangeAccent.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.report_problem_outlined,
-                  color: Colors.orangeAccent,
-                  size: 21,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            InkWell(
-              onTap: _toggleFavorite,
-              child: Container(
-                width: 48,
-                height: 48,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: Colors.blueAccent.withValues(alpha: 0.1),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
-                  _isFavorite
-                      ? Icons.favorite_rounded
-                      : Icons.favorite_border_rounded,
-                  color: _isFavorite ? Colors.redAccent : Colors.blueAccent,
-                  size: 22,
-                ),
-              ),
-            ),
-          ],
+        IconButton(
+          tooltip: 'Favoritar cifra',
+          onPressed: _toggleFavorite,
+          icon: Icon(
+            _isFavorite
+                ? Icons.favorite_rounded
+                : Icons.favorite_border_rounded,
+            color: _isFavorite ? Colors.redAccent : Colors.blueAccent,
+          ),
         ),
       ],
     );
@@ -2213,7 +2159,7 @@ class _CifraScreenState extends State<CifraScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildTitleAndActionsBar(),
-                const SizedBox(height: 24),
+                const SizedBox(height: 8),
 
                 SizedBox(
                   width: double.infinity,
@@ -2222,7 +2168,7 @@ class _CifraScreenState extends State<CifraScreen> {
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: _primaryText,
-                      fontSize: 26,
+                      fontSize: 22,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -2244,12 +2190,6 @@ class _CifraScreenState extends State<CifraScreen> {
                   alignment: WrapAlignment.center,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    _buildCifraInfoChip(
-                      label: 'Tom Real: $_currentPitch',
-                      color: Colors.blueAccent,
-                      onTap: _showToneSelector,
-                    ),
-
                     if (_safeCapo.isNotEmpty && _safeCapo != '0')
                       _buildCifraInfoChip(
                         label: _isCapoActive
@@ -2261,28 +2201,6 @@ class _CifraScreenState extends State<CifraScreen> {
                             : Icons.link_off_rounded,
                         onTap: _showSettingsPanel,
                       ),
-
-                    _buildCifraInfoChip(
-                      label: 'Simplificada',
-                      color: Colors.greenAccent,
-                      icon: _isSimplified
-                          ? Icons.check_circle_rounded
-                          : Icons.tune_rounded,
-                      selected: _isSimplified,
-                      onTap: () =>
-                          setState(() => _isSimplified = !_isSimplified),
-                    ),
-
-                    _buildCifraInfoChip(
-                      label: _isStageMode ? 'Modo Palco' : 'Modo Claro',
-                      color: _isStageMode
-                          ? Colors.deepPurpleAccent
-                          : Colors.blueGrey,
-                      icon: _isStageMode
-                          ? Icons.dark_mode_rounded
-                          : Icons.light_mode_rounded,
-                      onTap: _toggleStageMode,
-                    ),
                     if (_hasYoutubeReference)
                       _buildCifraInfoChip(
                         label: _isGuidedMode
@@ -2298,12 +2216,6 @@ class _CifraScreenState extends State<CifraScreen> {
                       color: Colors.orangeAccent,
                       icon: Icons.school_rounded,
                       onTap: _showChordStudySheet,
-                    ),
-                    _buildCifraInfoChip(
-                      label: 'Anotação',
-                      color: Colors.purpleAccent,
-                      icon: Icons.edit_note_rounded,
-                      onTap: _showAnnotationSheet,
                     ),
                   ],
                 ),

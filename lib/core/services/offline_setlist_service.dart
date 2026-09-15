@@ -121,7 +121,9 @@ class OfflineSetlistStore {
       'songs': songs.map((song) => song.toMap()..['id'] = song.id).toList(),
     };
 
-    await prefs.setString(_setlistKey(scheduleId), jsonEncode(payload));
+    if (!await prefs.setString(_setlistKey(scheduleId), jsonEncode(payload))) {
+      throw StateError('Não foi possível gravar o download no aparelho.');
+    }
     await _upsertSummary(
       prefs,
       OfflineSetlistSummary(
@@ -214,7 +216,9 @@ class OfflineSetlistStore {
         .where((summary) => summary.scheduleId != scheduleId)
         .map(_summaryToJson)
         .toList();
-    await prefs.setStringList(_indexKey, updated);
+    if (!await prefs.setStringList(_indexKey, updated)) {
+      throw StateError('Não foi possível atualizar a lista de downloads.');
+    }
   }
 
   Future<void> _upsertSummary(
@@ -230,7 +234,9 @@ class OfflineSetlistStore {
       await prefs.remove(_setlistKey(old.scheduleId));
     }
     final updated = all.take(20).map(_summaryToJson).toList();
-    await prefs.setStringList(_indexKey, updated);
+    if (!await prefs.setStringList(_indexKey, updated)) {
+      throw StateError('Não foi possível registrar o download no aparelho.');
+    }
   }
 
   static String _summaryToJson(OfflineSetlistSummary summary) {

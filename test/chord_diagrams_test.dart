@@ -187,6 +187,10 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        expect(find.byTooltip('Adicionar à setlist'), findsOneWidget);
+        expect(find.text('Simplificada'), findsNothing);
+        expect(find.text('Anotação'), findsNothing);
+        await capture(tester, 'cifra-header-$dark');
         final card = find.text('F', findRichText: true).last;
         await tester.ensureVisible(card);
         await tester.tap(card);

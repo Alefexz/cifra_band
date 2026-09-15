@@ -1,6 +1,8 @@
 // lib/features/setlist/presentation/screens/setlist_detail_screen.dart
 
 import 'package:flutter/material.dart';
+import '../../../../core/services/personal_setlist_service.dart';
+import '../../../../core/services/offline_setlist_service.dart';
 import 'package:cifra_band/features/songs/domain/entities/song_destination.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -217,79 +219,150 @@ class _SetlistDetailScreenState extends ConsumerState<SetlistDetailScreen> {
     );
   }
 
-  void _showEditOptions() {
-    showModalBottomSheet(
+  bool _downloading = false;
+  Future<void> _downloadSetlist() async {
+    if (_downloading) return;
+    setState(() => _downloading = true);
+    final progress = ValueNotifier<(int, int)>((0, 0));
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final route = DialogRoute<void>(
       context: context,
-      backgroundColor: Colors.transparent,
-      builder: (context) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: const BoxDecoration(
-          color: Color(0xFF16161E),
-          borderRadius: BorderRadius.only(
-            topLeft: Radius.circular(24),
-            topRight: Radius.circular(24),
+      barrierDismissible: false,
+      builder: (_) => PopScope(
+        canPop: false,
+        child: AlertDialog(
+          title: const Text('Baixar setlist'),
+          content: ValueListenableBuilder<(int, int)>(
+            valueListenable: progress,
+            builder: (_, value, _) => Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LinearProgressIndicator(
+                  value: value.$2 == 0 ? null : value.$1 / value.$2,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  value.$2 == 0
+                      ? 'Verificando cifras...'
+                      : '${value.$1} de ${value.$2} músicas',
+                ),
+              ],
+            ),
           ),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade700,
-                borderRadius: BorderRadius.circular(10),
-              ),
-            ),
-            const SizedBox(height: 24),
-            ListTile(
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.blueAccent.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+      ),
+    );
+    navigator.push(route);
+    String message;
+    try {
+      await PersonalSetlistService.download(
+        widget.setlist.id,
+        onProgress: (done, total) => progress.value = (done, total),
+      );
+      message = 'Setlist inteira disponível offline.';
+    } catch (error) {
+      message = 'Download não concluído. $error';
+    } finally {
+      if (route.isActive) navigator.removeRoute(route);
+      progress.dispose();
+      if (mounted) setState(() => _downloading = false);
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    }
+  }
+
+  Future<void> _openOffline() async {
+    final saved = await OfflineSetlistService.loadCultSetlist(
+      PersonalSetlistService.offlineId(widget.setlist.id),
+    );
+    if (!mounted) return;
+    if (saved == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Baixe esta setlist primeiro.')),
+      );
+      return;
+    }
+    context.push(
+      '/cult-setlist',
+      extra: {'title': saved.title, 'songs': saved.songs},
+    );
+  }
+
+  void _showEditOptions() {
+    final isOwner =
+        FirebaseAuth.instance.currentUser?.uid == widget.setlist.ownerId;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF16161E),
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(
+                  Icons.download_rounded,
+                  color: Colors.greenAccent,
                 ),
-                child: const Icon(Icons.edit_rounded, color: Colors.blueAccent),
-              ),
-              title: const Text(
-                'Renomear Setlist',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
+                title: const Text(
+                  'Baixar / atualizar setlist offline',
+                  style: TextStyle(color: Colors.white),
                 ),
+                enabled: !_downloading,
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _downloadSetlist();
+                },
               ),
-              onTap: () {
-                Navigator.pop(context);
-                _showRenameDialog();
-              },
-            ),
-            const Divider(color: Color(0xFF282832)),
-            ListTile(
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.redAccent.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
+              ListTile(
+                leading: const Icon(
+                  Icons.offline_pin_rounded,
+                  color: Colors.greenAccent,
                 ),
-                child: const Icon(
-                  Icons.delete_rounded,
-                  color: Colors.redAccent,
+                title: const Text(
+                  'Abrir cópia offline',
+                  style: TextStyle(color: Colors.white),
                 ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  _openOffline();
+                },
               ),
-              title: const Text(
-                'Excluir Setlist',
-                style: TextStyle(
-                  color: Colors.redAccent,
-                  fontWeight: FontWeight.bold,
+              if (isOwner) ...[
+                ListTile(
+                  leading: const Icon(
+                    Icons.edit_rounded,
+                    color: Colors.blueAccent,
+                  ),
+                  title: const Text(
+                    'Renomear Setlist',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _showRenameDialog();
+                  },
                 ),
-              ),
-              onTap: () {
-                Navigator.pop(context);
-                _showDeleteConfirmation();
-              },
-            ),
-            const SizedBox(height: 16),
-          ],
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_rounded,
+                    color: Colors.redAccent,
+                  ),
+                  title: const Text(
+                    'Excluir Setlist',
+                    style: TextStyle(color: Colors.redAccent),
+                  ),
+                  onTap: () {
+                    Navigator.pop(sheetContext);
+                    _showDeleteConfirmation();
+                  },
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -325,13 +398,14 @@ class _SetlistDetailScreenState extends ConsumerState<SetlistDetailScreen> {
         );
       }
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         messenger.showSnackBar(
           SnackBar(
             content: Text('Erro ao sair: $e'),
             backgroundColor: Colors.redAccent,
           ),
         );
+      }
     }
   }
 
@@ -403,11 +477,11 @@ class _SetlistDetailScreenState extends ConsumerState<SetlistDetailScreen> {
               ),
               onPressed: _shareSetlist,
             ),
-          if (isOwner)
-            IconButton(
-              icon: const Icon(Icons.more_vert_rounded, color: Colors.grey),
-              onPressed: _showEditOptions,
-            ),
+          IconButton(
+            tooltip: 'Opções da setlist',
+            icon: const Icon(Icons.more_vert_rounded, color: Colors.grey),
+            onPressed: _showEditOptions,
+          ),
           if (!isOwner)
             IconButton(
               icon: const Icon(
@@ -421,11 +495,30 @@ class _SetlistDetailScreenState extends ConsumerState<SetlistDetailScreen> {
       ),
       body: Column(
         children: [
+          FutureBuilder<bool>(
+            future: OfflineSetlistService.isCultSetlistSaved(
+              PersonalSetlistService.offlineId(widget.setlist.id),
+            ),
+            builder: (_, snapshot) => snapshot.data == true
+                ? ListTile(
+                    dense: true,
+                    leading: const Icon(
+                      Icons.offline_pin,
+                      color: Colors.greenAccent,
+                    ),
+                    title: const Text(
+                      'Cópia offline baixada',
+                      style: TextStyle(color: Colors.greenAccent),
+                    ),
+                    onTap: _openOffline,
+                  )
+                : const SizedBox.shrink(),
+          ),
           // ⚠️ AVISO PARA QUEM RECEBEU A SETLIST EMPRESTADA
           if (!isOwner)
             Container(
               padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-              color: Colors.blueAccent.withOpacity(0.1),
+              color: Colors.blueAccent.withValues(alpha: 0.1),
               child: const Row(
                 children: [
                   Icon(
@@ -460,19 +553,21 @@ class _SetlistDetailScreenState extends ConsumerState<SetlistDetailScreen> {
                     'Não foi possível carregar esta setlist. Verifique a conexão e o compartilhamento.',
                   );
                 }
-                if (!snapshot.hasData)
+                if (!snapshot.hasData) {
                   return const Center(
                     child: CircularProgressIndicator(color: Colors.blueAccent),
                   );
+                }
 
                 final data = snapshot.data!.data() as Map<String, dynamic>?;
-                if (data == null)
+                if (data == null) {
                   return const Center(
                     child: Text(
                       'Setlist não encontrada.',
                       style: TextStyle(color: Colors.white),
                     ),
                   );
+                }
 
                 final List<dynamic> songIds = data['songIds'] ?? [];
 
@@ -515,12 +610,13 @@ class _SetlistDetailScreenState extends ConsumerState<SetlistDetailScreen> {
                         'Não foi possível carregar as músicas. Verifique a conexão e tente novamente.',
                       );
                     }
-                    if (!futureSnapshot.hasData)
+                    if (!futureSnapshot.hasData) {
                       return const Center(
                         child: CircularProgressIndicator(
                           color: Colors.blueAccent,
                         ),
                       );
+                    }
 
                     final songs = futureSnapshot.data!;
 
@@ -544,7 +640,7 @@ class _SetlistDetailScreenState extends ConsumerState<SetlistDetailScreen> {
                             leading: Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: Colors.blueAccent.withOpacity(0.1),
+                                color: Colors.blueAccent.withValues(alpha: 0.1),
                                 shape: BoxShape.circle,
                               ),
                               child: const Icon(
@@ -709,10 +805,11 @@ class _ShareSetlistModalState extends State<ShareSetlistModal> {
                   .doc(currentUser.uid)
                   .get(),
               builder: (context, userSnapshot) {
-                if (!userSnapshot.hasData)
+                if (!userSnapshot.hasData) {
                   return const Center(
                     child: CircularProgressIndicator(color: Colors.blueAccent),
                   );
+                }
 
                 final userData =
                     userSnapshot.data!.data() as Map<String, dynamic>?;
@@ -734,12 +831,13 @@ class _ShareSetlistModalState extends State<ShareSetlistModal> {
                       .doc(widget.setlistId)
                       .snapshots(),
                   builder: (context, setlistSnapshot) {
-                    if (!setlistSnapshot.hasData)
+                    if (!setlistSnapshot.hasData) {
                       return const Center(
                         child: CircularProgressIndicator(
                           color: Colors.blueAccent,
                         ),
                       );
+                    }
 
                     final setlistData =
                         setlistSnapshot.data!.data() as Map<String, dynamic>?;
@@ -758,14 +856,16 @@ class _ShareSetlistModalState extends State<ShareSetlistModal> {
                               .doc(friendId)
                               .get(),
                           builder: (context, friendSnapshot) {
-                            if (!friendSnapshot.hasData)
+                            if (!friendSnapshot.hasData) {
                               return const SizedBox.shrink();
+                            }
 
                             final friendData =
                                 friendSnapshot.data!.data()
                                     as Map<String, dynamic>?;
-                            if (friendData == null)
+                            if (friendData == null) {
                               return const SizedBox.shrink();
+                            }
 
                             final friendName = friendData['name'] ?? 'Músico';
 
@@ -817,7 +917,7 @@ class _ShareSetlistModalState extends State<ShareSetlistModal> {
       child: Row(
         children: [
           CircleAvatar(
-            backgroundColor: Colors.blueAccent.withOpacity(0.2),
+            backgroundColor: Colors.blueAccent.withValues(alpha: 0.2),
             child: Text(
               name.isNotEmpty ? name[0].toUpperCase() : 'M',
               style: const TextStyle(
@@ -840,8 +940,8 @@ class _ShareSetlistModalState extends State<ShareSetlistModal> {
           Switch(
             value: isShared,
             onChanged: (val) => _toggleShare(friendId, isShared),
-            activeColor: Colors.blueAccent,
-            activeTrackColor: Colors.blueAccent.withOpacity(0.3),
+            activeThumbColor: Colors.blueAccent,
+            activeTrackColor: Colors.blueAccent.withValues(alpha: 0.3),
             inactiveThumbColor: Colors.grey.shade400,
             inactiveTrackColor: Colors.grey.shade800,
           ),

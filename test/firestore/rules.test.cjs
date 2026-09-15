@@ -1,7 +1,7 @@
 const { test, before, after } = require('node:test');
 const { readFileSync } = require('node:fs');
 const { initializeTestEnvironment, assertSucceeds, assertFails } = require('@firebase/rules-unit-testing');
-const { doc, setDoc, getDoc, getDocs, collection, query, or, where, documentId, updateDoc, writeBatch, arrayUnion, arrayRemove } = require('firebase/firestore');
+const { doc, setDoc, getDoc, getDocs, collection, query, or, where, documentId, updateDoc, writeBatch, arrayUnion, arrayRemove, runTransaction } = require('firebase/firestore');
 let env;
 before(async () => {
   env = await initializeTestEnvironment({ projectId: 'demo-cifra-band', firestore: {
@@ -24,6 +24,23 @@ test('reproduces old failure: reading nonexistent schedule before setlist save i
   await assertFails(getDoc(doc(env.authenticatedContext('owner').firestore(), 'schedules/owned')));
 });
 for (const uid of ['owner', 'member']) {
+  test(`${uid}: cifra picker transaction saves exact arrangement and deduplicates`, async () => {
+    const db = env.authenticatedContext(uid).firestore();
+    const ref = doc(db, `setlists/owned/songs/picker-${uid}`);
+    async function add() {
+      return runTransaction(db, async tx => {
+        await tx.get(doc(db, 'setlists/owned'));
+        const previous = await tx.get(ref);
+        if (previous.exists()) return false;
+        tx.set(ref, {title: 'Teste', artist: 'Teste', originalKey: 'D', key: 'D', shapeKey: 'C', capo: '2', content: 'C G\nLetra de teste', created_by: uid});
+        tx.update(doc(db, 'setlists/owned'), {songIds: arrayUnion(ref.id), updatedAt: 2});
+        return true;
+      });
+    }
+    if (await add() !== true || await add() !== false) throw Error('Duplicate prevention failed');
+    const saved = await assertSucceeds(getDoc(ref));
+    if (saved.data().shapeKey !== 'C' || saved.data().key !== 'D') throw Error('Arrangement changed');
+  });
   test(`${uid}: list with the exact app OR query`, async () => {
     const db = env.authenticatedContext(uid).firestore();
     const result = await assertSucceeds(getDocs(query(collection(db, 'setlists'), or(where('ownerId', '==', uid), where('sharedWith', 'array-contains', uid)))));
