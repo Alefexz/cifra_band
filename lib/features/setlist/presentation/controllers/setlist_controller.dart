@@ -1,45 +1,23 @@
-// lib/features/setlist/presentation/controllers/setlist_controller.dart
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cifra_band/features/home/presentation/providers/home_providers.dart';
 import '../../domain/entities/setlist_entity.dart';
 import '../providers/setlist_providers.dart';
 
-/// O Controller gerencia o ESTADO da tela (Loading, Erro ou Sucesso).
-/// Usamos o AsyncNotifier, que é a ferramenta mais moderna do Riverpod.
-class SetlistController extends AsyncNotifier<List<SetlistEntity>> {
+class SetlistController extends StreamNotifier<List<SetlistEntity>> {
   @override
-  Future<List<SetlistEntity>> build() async {
+  Stream<List<SetlistEntity>> build() {
     final user = ref.watch(authUserProvider).value;
-    if (user == null) return [];
-    // Quando a tela carregar, ele busca as setlists automaticamente
-    return _fetchSetlists();
+    if (user == null) return Stream.value([]);
+    // Riverpod cancels the old subscription when the authenticated user changes.
+    return ref.watch(setlistRepositoryProvider).watchSetlistsByUser(user.uid);
   }
 
-  Future<List<SetlistEntity>> _fetchSetlists() async {
-    final repository = ref.read(setlistRepositoryProvider);
-
-    return repository.getSetlistsByUser('');
-  }
-
-  // Função que a tela vai chamar quando o usuário clicar no botão "Nova Setlist"
   Future<void> addSetlist(SetlistEntity newSetlist) async {
-    // 1. Coloca a tela em estado de Loading (girando a rodinha)
-    state = const AsyncValue.loading();
-
-    // 2. Tenta salvar no Firebase. O "guard" captura qualquer erro de internet automaticamente!
-    state = await AsyncValue.guard(() async {
-      final repository = ref.read(setlistRepositoryProvider);
-      await repository.createSetlist(newSetlist);
-
-      // 3. Busca a lista atualizada no banco
-      return _fetchSetlists();
-    });
+    await ref.read(setlistRepositoryProvider).createSetlist(newSetlist);
   }
 }
 
-/// Provedor final que a nossa Tela vai escutar.
 final setlistControllerProvider =
-    AsyncNotifierProvider<SetlistController, List<SetlistEntity>>(() {
-      return SetlistController();
-    });
+    StreamNotifierProvider<SetlistController, List<SetlistEntity>>(
+      SetlistController.new,
+    );

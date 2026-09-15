@@ -163,6 +163,12 @@ class _CifraScreenState extends State<CifraScreen> {
     });
   }
 
+  Future<void> _toggleStageMode() async {
+    setState(() => _isStageMode = !_isStageMode);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('cifra_stage_mode', _isStageMode);
+  }
+
   Future<void> _setInstrument(_CifraInstrument instrument) async {
     setState(() => _selectedInstrument = instrument);
     final prefs = await SharedPreferences.getInstance();
@@ -2073,14 +2079,6 @@ class _CifraScreenState extends State<CifraScreen> {
           icon: const Icon(Icons.add_rounded, color: Colors.greenAccent),
         ),
         IconButton(
-          tooltip: 'Reportar problema nesta cifra',
-          onPressed: _reportWrongChord,
-          icon: const Icon(
-            Icons.report_problem_outlined,
-            color: Colors.orangeAccent,
-          ),
-        ),
-        IconButton(
           tooltip: 'Favoritar cifra',
           onPressed: _toggleFavorite,
           icon: Icon(
@@ -2190,6 +2188,11 @@ class _CifraScreenState extends State<CifraScreen> {
                   alignment: WrapAlignment.center,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
+                    _buildCifraInfoChip(
+                      label: 'Tom Real: $_currentPitch',
+                      color: Colors.blueAccent,
+                      onTap: _showToneSelector,
+                    ),
                     if (_safeCapo.isNotEmpty && _safeCapo != '0')
                       _buildCifraInfoChip(
                         label: _isCapoActive
@@ -2201,6 +2204,26 @@ class _CifraScreenState extends State<CifraScreen> {
                             : Icons.link_off_rounded,
                         onTap: _showSettingsPanel,
                       ),
+                    _buildCifraInfoChip(
+                      label: 'Simplificada',
+                      color: Colors.greenAccent,
+                      icon: _isSimplified
+                          ? Icons.check_circle_rounded
+                          : Icons.tune_rounded,
+                      selected: _isSimplified,
+                      onTap: () =>
+                          setState(() => _isSimplified = !_isSimplified),
+                    ),
+                    _buildCifraInfoChip(
+                      label: _isStageMode ? 'Modo Palco' : 'Modo Claro',
+                      color: _isStageMode
+                          ? Colors.deepPurpleAccent
+                          : Colors.blueGrey,
+                      icon: _isStageMode
+                          ? Icons.dark_mode_rounded
+                          : Icons.light_mode_rounded,
+                      onTap: _toggleStageMode,
+                    ),
                     if (_hasYoutubeReference)
                       _buildCifraInfoChip(
                         label: _isGuidedMode
@@ -2216,6 +2239,12 @@ class _CifraScreenState extends State<CifraScreen> {
                       color: Colors.orangeAccent,
                       icon: Icons.school_rounded,
                       onTap: _showChordStudySheet,
+                    ),
+                    _buildCifraInfoChip(
+                      label: 'Anotação',
+                      color: Colors.purpleAccent,
+                      icon: Icons.edit_note_rounded,
+                      onTap: _showAnnotationSheet,
                     ),
                   ],
                 ),

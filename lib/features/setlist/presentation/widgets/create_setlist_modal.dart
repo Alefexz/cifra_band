@@ -14,6 +14,8 @@ class CreateSetlistModal extends ConsumerStatefulWidget {
 
 class _CreateSetlistModalState extends ConsumerState<CreateSetlistModal> {
   final _nameController = TextEditingController();
+  bool _saving = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -21,9 +23,13 @@ class _CreateSetlistModalState extends ConsumerState<CreateSetlistModal> {
     super.dispose();
   }
 
-  void _salvarSetlist() {
+  Future<void> _salvarSetlist() async {
     final title = _nameController.text.trim();
-    if (title.isEmpty) return; // Não deixa salvar sem nome
+    if (title.isEmpty || _saving) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
 
     // Agora sim, criamos a Setlist com o nome que o usuário digitou!
     // Ela nasce vazia (sem músicas) para adicionarmos depois.
@@ -36,8 +42,19 @@ class _CreateSetlistModalState extends ConsumerState<CreateSetlistModal> {
       updatedAt: DateTime.now(),
     );
 
-    ref.read(setlistControllerProvider.notifier).addSetlist(novaSetlist);
-    Navigator.of(context).pop(); // Fecha a aba do formulário
+    try {
+      await ref
+          .read(setlistControllerProvider.notifier)
+          .addSetlist(novaSetlist);
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = 'Não foi possível criar a setlist. Tente novamente.';
+        });
+      }
+    }
   }
 
   @override
@@ -63,6 +80,7 @@ class _CreateSetlistModalState extends ConsumerState<CreateSetlistModal> {
           ),
           const SizedBox(height: 24),
           TextField(
+            enabled: !_saving,
             controller: _nameController,
             autofocus: true,
             textCapitalization: TextCapitalization.words,
@@ -84,7 +102,7 @@ class _CreateSetlistModalState extends ConsumerState<CreateSetlistModal> {
           ),
           const SizedBox(height: 24),
           ElevatedButton(
-            onPressed: _salvarSetlist,
+            onPressed: _saving ? null : _salvarSetlist,
             style: ElevatedButton.styleFrom(
               backgroundColor: Theme.of(context).colorScheme.primary,
               foregroundColor: Colors.black, // Letra preta no botão verde neon
@@ -93,11 +111,13 @@ class _CreateSetlistModalState extends ConsumerState<CreateSetlistModal> {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            child: const Text(
-              'Criar Repertório',
-              style: TextStyle(fontWeight: FontWeight.bold),
+            child: Text(
+              _saving ? 'Criando...' : 'Criar Repertório',
+              style: const TextStyle(fontWeight: FontWeight.bold),
             ),
           ),
+          if (_error != null)
+            Text(_error!, style: const TextStyle(color: Colors.redAccent)),
           const SizedBox(height: 24), // Espaço extra para ficar bonito no final
         ],
       ),

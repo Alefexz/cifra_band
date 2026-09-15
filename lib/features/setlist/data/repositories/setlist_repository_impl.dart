@@ -14,7 +14,9 @@ class SetlistRepositoryImpl implements SetlistRepository {
   @override
   Future<void> createSetlist(SetlistEntity setlist) async {
     final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) throw Exception('Você precisa estar logado para criar setlists.');
+    if (currentUser == null) {
+      throw Exception('Você precisa estar logado para criar setlists.');
+    }
 
     final model = SetlistModel(
       id: setlist.id,
@@ -30,22 +32,25 @@ class SetlistRepositoryImpl implements SetlistRepository {
 
   @override
   Future<List<SetlistEntity>> getSetlistsByUser(String userId) async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) return []; 
+    return watchSetlistsByUser(userId).first;
+  }
 
-    // ⚠️ MÁGICA: Busca as que sou dono OU as que meu UID está na lista de compartilhados!
-    final snapshot = await _firestore
+  @override
+  Stream<List<SetlistEntity>> watchSetlistsByUser(String userId) {
+    if (userId.isEmpty) return Stream.value([]);
+    return _firestore
         .collection('setlists')
         .where(
           Filter.or(
-            Filter('ownerId', isEqualTo: currentUser.uid),
-            Filter('sharedWith', arrayContains: currentUser.uid),
-          )
+            Filter('ownerId', isEqualTo: userId),
+            Filter('sharedWith', arrayContains: userId),
+          ),
         )
-        .get();
-
-    return snapshot.docs
-        .map((doc) => SetlistModel.fromMap(doc.data(), doc.id))
-        .toList();
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map((doc) => SetlistModel.fromMap(doc.data(), doc.id))
+              .toList(),
+        );
   }
 }
