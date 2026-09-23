@@ -1,6 +1,6 @@
 {
   "name": "cifra-band-rules-tests",
   "private": true,
-  "scripts": { "test": "node --test rules.test.cjs update-push.test.cjs" },
+  "scripts": { "test": "node --test --test-concurrency=1 rules.test.cjs update-push.test.cjs account-deletion.test.cjs" },
   "devDependencies": { "@firebase/rules-unit-testing": "^5.0.0", "firebase": "^12.0.0" }
 }

@@ -19,6 +19,9 @@ import 'core/services/backend_warmup_service.dart';
 import 'core/services/member_actions_service.dart';
 import 'core/services/offline_setlist_service.dart';
 import 'core/services/app_owner_service.dart';
+import 'core/services/account_local_data_service.dart';
+import 'core/services/account_deletion_service.dart';
+import 'features/home/presentation/screens/account_deletion_screen.dart';
 import 'firebase_options.dart';
 
 // ⚠️ ESSA FUNÇÃO PRECISA FICAR AQUI FORA DE QUALQUER CLASSE!
@@ -38,6 +41,10 @@ void main() {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
+
+      final startupUser = await FirebaseAuth.instance.authStateChanges().first;
+      await AccountLocalDataService.initialize(startupUser?.uid);
+      await AccountDeletionService.restore();
 
       await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(true);
       FlutterError.onError = (details) {
@@ -97,7 +104,12 @@ class CifraBandApp extends StatelessWidget {
       themeMode: ThemeMode.dark,
       routerConfig: appRouter,
       builder: (context, child) {
-        return _StartupHooks(child: child ?? const SizedBox.shrink());
+        return ValueListenableBuilder<Map<String, dynamic>?>(
+          valueListenable: AccountDeletionService.pending,
+          builder: (context, deletion, _) => deletion == null
+              ? _StartupHooks(child: child ?? const SizedBox.shrink())
+              : const AccountDeletionProgressScreen(),
+        );
       },
     );
   }
@@ -146,6 +158,7 @@ class _StartupHooksState extends State<_StartupHooks>
   }
 
   Future<void> _syncCrashContext(User? user) async {
+    AccountLocalDataService.setSession(user?.uid);
     if (user != null) unawaited(PushNotificationService.syncInstalledVersion());
     if (user != null) {
       unawaited(
@@ -161,10 +174,12 @@ class _StartupHooksState extends State<_StartupHooks>
         _openNotification(_pendingNotification!);
     }
     try {
+      // Clear values persisted by older versions; crash reports do not need them.
+      await FirebaseCrashlytics.instance.setCustomKey('user_email', '');
+      await FirebaseCrashlytics.instance.setCustomKey('church_id', '');
       if (user == null) {
         await FirebaseCrashlytics.instance.setUserIdentifier('');
         await FirebaseCrashlytics.instance.setCustomKey('uid', '');
-        await FirebaseCrashlytics.instance.setCustomKey('church_id', '');
         await FirebaseCrashlytics.instance.setCustomKey('is_admin', false);
         AppDiagnosticsService.setContext({'auth': 'signed_out'});
         return;
@@ -175,17 +190,16 @@ class _StartupHooksState extends State<_StartupHooks>
           .doc(user.uid)
           .get();
       final userData = userDoc.data() ?? const <String, dynamic>{};
+      if (!mounted ||
+          AccountDeletionService.pending.value != null ||
+          FirebaseAuth.instance.currentUser?.uid != user.uid)
+        return;
       final churchId = '${userData['church_id'] ?? ''}'.trim();
       final isAdmin = userData['is_admin'] == true;
 
       await FirebaseCrashlytics.instance.setUserIdentifier(user.uid);
       await FirebaseCrashlytics.instance.setCustomKey('uid', user.uid);
-      await FirebaseCrashlytics.instance.setCustomKey('church_id', churchId);
       await FirebaseCrashlytics.instance.setCustomKey('is_admin', isAdmin);
-      await FirebaseCrashlytics.instance.setCustomKey(
-        'user_email',
-        user.email ?? '',
-      );
 
       AppDiagnosticsService.setContext({
         'uid': user.uid,

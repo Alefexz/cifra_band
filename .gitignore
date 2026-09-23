@@ -61,6 +61,10 @@ functions/node_modules/
 !.env.example
 *.key
 *.pem
+*.jks
+*.keystore
+**/key.properties
+**/play-signing.properties
 *serviceAccount*.json
 *serviceAccount*.json.*
 /.firebaserc

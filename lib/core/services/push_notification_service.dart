@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show appFlavor;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
@@ -77,6 +78,7 @@ class PushNotificationService {
                   'token': token,
                   'build': build,
                   'platform': 'android',
+                  'distribution': appFlavor == 'play' ? 'play' : 'direct',
                 }),
               )
               .timeout(const Duration(seconds: 25));

@@ -495,6 +495,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 ),
 
                 const SizedBox(height: 32),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(
+                    Icons.queue_music,
+                    color: Colors.greenAccent,
+                  ),
+                  title: const Text(
+                    'Central de ensaios',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+                  onTap: () => context.push('/rehearsals'),
+                ),
+                const SizedBox(height: 16),
                 const Text(
                   'PRÓXIMA ESCALA',
                   style: TextStyle(

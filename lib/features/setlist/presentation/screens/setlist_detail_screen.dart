@@ -1,6 +1,7 @@
 // lib/features/setlist/presentation/screens/setlist_detail_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:cifra_band/core/services/setlist_contacts_service.dart';
 import '../../../../core/services/personal_setlist_service.dart';
 import '../../../../core/services/offline_setlist_service.dart';
 import 'package:cifra_band/features/songs/domain/entities/song_destination.dart';
@@ -724,19 +725,38 @@ class ShareSetlistModal extends StatefulWidget {
 }
 
 class _ShareSetlistModalState extends State<ShareSetlistModal> {
+  late Future<List<SetlistContact>> _contacts;
+
+  @override
+  void initState() {
+    super.initState();
+    _contacts = SetlistContactsService.load();
+  }
+
   Future<void> _toggleShare(String friendId, bool isShared) async {
     final setlistRef = FirebaseFirestore.instance
         .collection('setlists')
         .doc(widget.setlistId);
 
-    if (isShared) {
-      await setlistRef.update({
-        'sharedWith': FieldValue.arrayRemove([friendId]),
-      });
-    } else {
-      await setlistRef.update({
-        'sharedWith': FieldValue.arrayUnion([friendId]),
-      });
+    try {
+      if (isShared) {
+        await setlistRef.update({
+          'sharedWith': FieldValue.arrayRemove([friendId]),
+        });
+      } else {
+        await setlistRef.update({
+          'sharedWith': FieldValue.arrayUnion([friendId]),
+        });
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Não foi possível alterar o compartilhamento. Tente novamente.',
+          ),
+        ),
+      );
     }
   }
 
@@ -799,21 +819,36 @@ class _ShareSetlistModalState extends State<ShareSetlistModal> {
           const SizedBox(height: 16),
 
           Expanded(
-            child: FutureBuilder<DocumentSnapshot>(
-              future: FirebaseFirestore.instance
-                  .collection('users')
-                  .doc(currentUser.uid)
-                  .get(),
-              builder: (context, userSnapshot) {
-                if (!userSnapshot.hasData) {
+            child: FutureBuilder<List<SetlistContact>>(
+              future: _contacts,
+              builder: (context, contactsSnapshot) {
+                if (contactsSnapshot.hasError) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          'Não foi possível carregar os contatos.',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        TextButton.icon(
+                          onPressed: () => setState(
+                            () => _contacts = SetlistContactsService.load(),
+                          ),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text('Tentar novamente'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                if (!contactsSnapshot.hasData) {
                   return const Center(
                     child: CircularProgressIndicator(color: Colors.blueAccent),
                   );
                 }
 
-                final userData =
-                    userSnapshot.data!.data() as Map<String, dynamic>?;
-                final List<dynamic> friendsList = userData?['friends'] ?? [];
+                final friendsList = contactsSnapshot.data!;
 
                 if (friendsList.isEmpty) {
                   return const Center(
@@ -831,6 +866,16 @@ class _ShareSetlistModalState extends State<ShareSetlistModal> {
                       .doc(widget.setlistId)
                       .snapshots(),
                   builder: (context, setlistSnapshot) {
+                    if (setlistSnapshot.hasError ||
+                        (setlistSnapshot.hasData &&
+                            !setlistSnapshot.data!.exists)) {
+                      return const Center(
+                        child: Text(
+                          'Setlist indisponível ou acesso removido.',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      );
+                    }
                     if (!setlistSnapshot.hasData) {
                       return const Center(
                         child: CircularProgressIndicator(
@@ -847,34 +892,14 @@ class _ShareSetlistModalState extends State<ShareSetlistModal> {
                     return ListView.builder(
                       itemCount: friendsList.length,
                       itemBuilder: (context, index) {
-                        final friendId = friendsList[index] as String;
+                        final friend = friendsList[index];
+                        final friendId = friend.id;
                         final isShared = sharedWithList.contains(friendId);
 
-                        return FutureBuilder<DocumentSnapshot>(
-                          future: FirebaseFirestore.instance
-                              .collection('public_profiles')
-                              .doc(friendId)
-                              .get(),
-                          builder: (context, friendSnapshot) {
-                            if (!friendSnapshot.hasData) {
-                              return const SizedBox.shrink();
-                            }
-
-                            final friendData =
-                                friendSnapshot.data!.data()
-                                    as Map<String, dynamic>?;
-                            if (friendData == null) {
-                              return const SizedBox.shrink();
-                            }
-
-                            final friendName = friendData['name'] ?? 'Músico';
-
-                            return _buildFriendTile(
-                              friendId,
-                              friendName,
-                              isShared,
-                            );
-                          },
+                        return _buildFriendTile(
+                          friendId,
+                          friend.name,
+                          isShared,
                         );
                       },
                     );

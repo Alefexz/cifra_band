@@ -13,6 +13,7 @@ import 'package:cifra_band/core/services/chord_study_service.dart';
 import 'package:cifra_band/core/services/official_library_service.dart';
 import 'package:cifra_band/core/services/played_history_service.dart';
 import 'package:cifra_band/core/services/song_annotation_service.dart';
+import 'package:cifra_band/core/services/account_local_data_service.dart';
 import '../../data/models/song_model.dart';
 import '../../../setlist/presentation/widgets/add_to_setlist_sheet.dart';
 import '../widgets/chord_diagrams/guitar_chord_diagram.dart';
@@ -146,6 +147,7 @@ class _CifraScreenState extends State<CifraScreen> {
 
     WakelockPlus.enable();
     _loadCifraDisplayMode();
+    AccountLocalDataService.session.addListener(_onAccountChanged);
     _checkIfFavorite();
     if (widget.recordHistory) {
       unawaited(PlayedHistoryService.recordSong(widget.song));
@@ -177,6 +179,7 @@ class _CifraScreenState extends State<CifraScreen> {
 
   @override
   void dispose() {
+    AccountLocalDataService.session.removeListener(_onAccountChanged);
     _scrollTimer?.cancel();
     _guidedSyncTimer?.cancel();
     _youtubeController?.close();
@@ -186,8 +189,8 @@ class _CifraScreenState extends State<CifraScreen> {
   }
 
   Future<void> _checkIfFavorite() async {
-    final prefs = await SharedPreferences.getInstance();
-    final favoriteList = prefs.getStringList('favorite_songs') ?? [];
+    final favoriteList = AccountLocalDataService.current?.loadFavorites() ?? [];
+    if (!mounted) return;
     setState(() {
       _isFavorite = favoriteList.any((songJson) {
         final decoded = json.decode(songJson);
@@ -197,8 +200,9 @@ class _CifraScreenState extends State<CifraScreen> {
   }
 
   Future<void> _toggleFavorite() async {
-    final prefs = await SharedPreferences.getInstance();
-    final favoriteList = prefs.getStringList('favorite_songs') ?? [];
+    final store = AccountLocalDataService.current;
+    if (store == null) return;
+    final favoriteList = store.loadFavorites();
 
     final currentSongMap = {
       'id': widget.song.id,
@@ -241,8 +245,17 @@ class _CifraScreenState extends State<CifraScreen> {
         );
       }
     }
-    await prefs.setStringList('favorite_songs', favoriteList);
+    await store.saveFavorites(favoriteList);
   }
+
+  void _onAccountChanged() {
+    if (!mounted) return;
+    setState(() => _isFavorite = false);
+    _annotationController?.clear();
+    _checkIfFavorite();
+  }
+
+  TextEditingController? _annotationController;
 
   void _toggleAutoScroll() {
     setState(() => _isPlaying = !_isPlaying);
@@ -817,13 +830,19 @@ class _CifraScreenState extends State<CifraScreen> {
   }
 
   Future<void> _showAnnotationSheet() async {
+    final ownerUid = AccountLocalDataService.session.value;
+    if (ownerUid == null) return;
     final controller = TextEditingController(
       text: await SongAnnotationService.load(
         widget.song.title,
         widget.song.artist,
       ),
     );
-    if (!mounted) return;
+    if (!mounted || AccountLocalDataService.session.value != ownerUid) {
+      controller.dispose();
+      return;
+    }
+    _annotationController = controller;
 
     await showModalBottomSheet(
       context: context,
@@ -875,6 +894,10 @@ class _CifraScreenState extends State<CifraScreen> {
                   const SizedBox(height: 14),
                   ElevatedButton.icon(
                     onPressed: () async {
+                      if (AccountLocalDataService.session.value != ownerUid) {
+                        Navigator.pop(context);
+                        return;
+                      }
                       await SongAnnotationService.save(
                         widget.song.title,
                         widget.song.artist,
@@ -897,6 +920,7 @@ class _CifraScreenState extends State<CifraScreen> {
         );
       },
     );
+    _annotationController = null;
     controller.dispose();
   }
 
@@ -989,12 +1013,12 @@ class _CifraScreenState extends State<CifraScreen> {
                       else
                         ...chords.map((chord) {
                           final insight = ChordStudyService.insightFor(
-                            chord,
+                            _soundingChord(chord),
                             _currentPitch,
                           );
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 10),
-                            child: _buildChordStudyCard(insight),
+                            child: _buildChordStudyCard(insight, chord),
                           );
                         }),
                     ],
@@ -1075,9 +1099,9 @@ class _CifraScreenState extends State<CifraScreen> {
     );
   }
 
-  Widget _buildChordStudyCard(ChordInsight insight) {
+  Widget _buildChordStudyCard(ChordInsight insight, String displayedChord) {
     return InkWell(
-      onTap: () => _showChordDetailSheet(insight.chord),
+      onTap: () => _showChordDetailSheet(displayedChord),
       borderRadius: BorderRadius.circular(16),
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -1108,7 +1132,11 @@ class _CifraScreenState extends State<CifraScreen> {
               ],
             ),
             const SizedBox(height: 10),
-            _buildInstrumentDiagram(insight, compact: true),
+            _buildInstrumentDiagram(
+              insight,
+              compact: true,
+              displayedChord: displayedChord,
+            ),
             const SizedBox(height: 10),
             Text(
               insight.explanation,
@@ -1124,8 +1152,22 @@ class _CifraScreenState extends State<CifraScreen> {
     );
   }
 
+  String _soundingChord(String displayedChord) {
+    if (!_isCapoActive || _safeCapo.isEmpty || _safeCapo == '0') {
+      return displayedChord;
+    }
+    return TransposerEngine.transposeChord(
+      displayedChord,
+      TransposerEngine.getSemitonesDifference(_currentShape, _currentPitch),
+      preferFlats: _currentPitch.contains('b'),
+    );
+  }
+
   void _showChordDetailSheet(String chord) {
-    final insight = ChordStudyService.insightFor(chord, _currentPitch);
+    final insight = ChordStudyService.insightFor(
+      _soundingChord(chord),
+      _currentPitch,
+    );
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1175,7 +1217,11 @@ class _CifraScreenState extends State<CifraScreen> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  _buildInstrumentDiagram(insight, compact: false),
+                  _buildInstrumentDiagram(
+                    insight,
+                    compact: false,
+                    displayedChord: chord,
+                  ),
                   const SizedBox(height: 16),
                   Text(
                     insight.notes.isEmpty
@@ -1238,15 +1284,24 @@ class _CifraScreenState extends State<CifraScreen> {
   Widget _buildInstrumentDiagram(
     ChordInsight insight, {
     required bool compact,
+    required String displayedChord,
   }) {
     if (_selectedInstrument == _CifraInstrument.keyboard) {
       return _buildKeyboardDiagram(insight, compact: compact);
     }
-    return _buildGuitarDiagram(insight, compact: compact);
+    return _buildGuitarDiagram(
+      insight,
+      compact: compact,
+      displayedChord: displayedChord,
+    );
   }
 
-  Widget _buildGuitarDiagram(ChordInsight insight, {required bool compact}) {
-    final shape = insight.guitarShape;
+  Widget _buildGuitarDiagram(
+    ChordInsight insight, {
+    required bool compact,
+    required String displayedChord,
+  }) {
+    final shape = ChordStudyService.guitarShapeFor(displayedChord);
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(compact ? 10 : 14),
@@ -1272,6 +1327,8 @@ class _CifraScreenState extends State<CifraScreen> {
                 child: Text(
                   shape == null
                       ? 'Violão/Guitarra · notas do acorde'
+                      : _isCapoActive
+                      ? 'Violão/Guitarra · Forma $displayedChord · Capo $_safeCapo'
                       : 'Violão/Guitarra · ${shape.label}',
                   style: TextStyle(
                     color: _primaryText,

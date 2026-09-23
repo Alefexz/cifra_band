@@ -3,7 +3,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cifra_band/core/services/account_local_data_service.dart';
 import '../../../songs/data/models/song_model.dart';
 
 class FavoriteSongsScreen extends StatefulWidget {
@@ -20,12 +20,12 @@ class _FavoriteSongsScreenState extends State<FavoriteSongsScreen> {
   @override
   void initState() {
     super.initState();
+    AccountLocalDataService.session.addListener(_accountChanged);
     _loadFavorites();
   }
 
   Future<void> _loadFavorites() async {
-    final prefs = await SharedPreferences.getInstance();
-    final favoriteList = prefs.getStringList('favorite_songs') ?? [];
+    final favoriteList = AccountLocalDataService.current?.loadFavorites() ?? [];
 
     final List<SongModel> loadedSongs = [];
     for (String songJson in favoriteList) {
@@ -51,6 +51,7 @@ class _FavoriteSongsScreenState extends State<FavoriteSongsScreen> {
       }
     }
 
+    if (!mounted) return;
     setState(() {
       _favoriteSongs = loadedSongs;
       _isLoading = false;
@@ -58,15 +59,17 @@ class _FavoriteSongsScreenState extends State<FavoriteSongsScreen> {
   }
 
   Future<void> _removeFavorite(String id) async {
-    final prefs = await SharedPreferences.getInstance();
-    final favoriteList = prefs.getStringList('favorite_songs') ?? [];
+    final store = AccountLocalDataService.current;
+    if (store == null) return;
+    final favoriteList = store.loadFavorites();
 
     favoriteList.removeWhere((songJson) {
       final decoded = json.decode(songJson);
       return decoded['id'] == id;
     });
 
-    await prefs.setStringList('favorite_songs', favoriteList);
+    await store.saveFavorites(favoriteList);
+    if (!mounted || AccountLocalDataService.session.value != store.uid) return;
     _loadFavorites(); // Recarrega a lista
 
     if (mounted) {
@@ -106,6 +109,18 @@ class _FavoriteSongsScreenState extends State<FavoriteSongsScreen> {
           ? _buildEmptyState()
           : _buildList(),
     );
+  }
+
+  void _accountChanged() {
+    if (!mounted) return;
+    setState(() => _favoriteSongs = []);
+    _loadFavorites();
+  }
+
+  @override
+  void dispose() {
+    AccountLocalDataService.session.removeListener(_accountChanged);
+    super.dispose();
   }
 
   Widget _buildEmptyState() {

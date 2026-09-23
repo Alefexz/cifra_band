@@ -4,12 +4,14 @@ import 'package:cifra_band/core/services/member_actions_service.dart';
 import 'package:cifra_band/core/services/push_notification_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:cifra_band/core/services/account_local_data_service.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:cifra_band/core/services/app_owner_service.dart';
 import '../providers/home_providers.dart';
+import 'account_deletion_screen.dart';
 
 class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
@@ -80,6 +82,7 @@ class ProfileScreen extends ConsumerWidget {
 
     await PushNotificationService.detachBeforeSignOut();
     await FirebaseAuth.instance.signOut();
+    AccountLocalDataService.setSession(null);
 
     if (context.mounted) {
       Navigator.of(context).pop();
@@ -674,6 +677,20 @@ class ProfileScreen extends ConsumerWidget {
                           ),
                         ),
                         onTap: () => _signOut(context),
+                      ),
+                      const Divider(color: Color(0xFF282832), height: 1),
+                      ListTile(
+                        leading: const Icon(
+                          Icons.delete_forever,
+                          color: Colors.redAccent,
+                        ),
+                        title: const Text('Excluir conta e dados'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const AccountDeletionScreen(),
+                          ),
+                        ),
                       ),
                     ],
                   ),

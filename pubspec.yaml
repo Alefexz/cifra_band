@@ -3,7 +3,7 @@ description: "A new Flutter project."
 
 publish_to: 'none'
 
-version: 1.5.9+27
+version: 1.6.0+28
 
 environment:
   sdk: ^3.11.4
@@ -77,6 +77,7 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
 
 flutter:
+  default-flavor: direct
   uses-material-design: true
 
   assets:

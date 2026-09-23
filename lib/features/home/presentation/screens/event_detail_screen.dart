@@ -15,6 +15,8 @@ import 'package:cifra_band/core/services/api_notification.dart';
 import 'package:cifra_band/core/services/availability_service.dart';
 import 'package:cifra_band/core/services/offline_setlist_service.dart';
 import 'package:cifra_band/core/services/rehearsal_service.dart';
+import 'package:cifra_band/core/services/rehearsal_preparation.dart';
+import '../widgets/rehearsal_panel.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
@@ -22,11 +24,13 @@ import 'package:share_plus/share_plus.dart';
 class EventDetailScreen extends StatefulWidget {
   final bool isAdmin;
   final String scheduleId;
+  final int initialTab;
 
   const EventDetailScreen({
     super.key,
     required this.isAdmin,
     required this.scheduleId,
+    this.initialTab = 0,
   });
 
   @override
@@ -40,7 +44,11 @@ class _EventDetailScreenState extends State<EventDetailScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(
+      length: 3,
+      initialIndex: widget.initialTab.clamp(0, 2),
+      vsync: this,
+    );
   }
 
   @override
@@ -458,100 +466,39 @@ class _EventDetailScreenState extends State<EventDetailScreen>
     Map<String, dynamic> songMap,
     bool currentValue,
   ) async {
-    final title = songMap['title']?.toString() ?? '';
-    final artist = songMap['artist']?.toString() ?? '';
-    final key = RehearsalService.songKey(title, artist);
-    await RehearsalService.saveMyStatus(
-      scheduleId: widget.scheduleId,
-      songKey: key,
-      title: title,
-      artist: artist,
-      rehearsed: !currentValue,
-    );
-  }
-
-  Future<void> _showMySongObservation(Map<String, dynamic> songMap) async {
-    final title = songMap['title']?.toString() ?? '';
-    final artist = songMap['artist']?.toString() ?? '';
-    final key = RehearsalService.songKey(title, artist);
-    final controller = TextEditingController();
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: Container(
-            padding: const EdgeInsets.all(22),
-            decoration: const BoxDecoration(
-              color: Color(0xFF16161E),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            ),
-            child: SafeArea(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: controller,
-                    minLines: 4,
-                    maxLines: 7,
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText:
-                          'Ex: preciso revisar ponte, segunda voz ou entrada.',
-                      hintStyle: TextStyle(color: Colors.grey.shade600),
-                      filled: true,
-                      fillColor: const Color(0xFF0D0D12),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
-                        borderSide: BorderSide.none,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  ElevatedButton.icon(
-                    onPressed: () async {
-                      await RehearsalService.saveMyStatus(
-                        scheduleId: widget.scheduleId,
-                        songKey: key,
-                        title: title,
-                        artist: artist,
-                        rehearsed: true,
-                        note: controller.text,
-                      );
-                      if (context.mounted) Navigator.pop(context);
-                    },
-                    icon: const Icon(Icons.save_rounded),
-                    label: const Text('Salvar observação'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blueAccent,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                  ),
-                ],
-              ),
+    try {
+      await RehearsalService.savePreparation(
+        scheduleId: widget.scheduleId,
+        song: songMap,
+        stage: currentValue ? PreparationStage.pending : PreparationStage.ready,
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Não foi possível salvar a preparação. Reabra o ensaio e tente novamente.',
             ),
           ),
         );
-      },
-    );
-    controller.dispose();
+      }
+    }
   }
+
+  Future<void> _showMySongObservation(
+    Map<String, dynamic> songMap,
+    RehearsalPreparation current,
+  ) => showPreparationEditor(
+    context,
+    song: songMap,
+    current: current,
+    save: (stage, note) => RehearsalService.savePreparation(
+      scheduleId: widget.scheduleId,
+      song: songMap,
+      stage: stage,
+      note: note,
+    ),
+  );
 
   Future<void> _openReferenceUrl(String rawUrl) async {
     final value = rawUrl.trim();
@@ -917,6 +864,23 @@ class _EventDetailScreenState extends State<EventDetailScreen>
           .doc(widget.scheduleId)
           .snapshots(),
       builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Scaffold(
+            appBar: AppBar(title: const Text('Escala')),
+            body: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Não foi possível acessar esta escala.'),
+                  TextButton(
+                    onPressed: () => setState(() {}),
+                    child: const Text('Tentar novamente'),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
         if (!snapshot.hasData) {
           return const Scaffold(
             backgroundColor: Color(0xFF0D0D12),
@@ -1075,6 +1039,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                 ),
             ],
             bottom: TabBar(
+              isScrollable: true,
               controller: _tabController,
               indicatorColor: Colors.blueAccent,
               indicatorWeight: 3,
@@ -1083,6 +1048,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
               tabs: const [
                 Tab(text: 'REPERTÓRIO'),
                 Tab(text: 'EQUIPE'),
+                Tab(text: 'ENSAIO'),
               ],
             ),
           ),
@@ -1096,6 +1062,18 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                 title,
               ),
               _buildEquipeTab(churchId, teamAssignments, title, timestampDate),
+              RehearsalPanel(
+                scheduleId: widget.scheduleId,
+                songs: approvedSongs
+                    .whereType<Map>()
+                    .map((song) => Map<String, dynamic>.from(song))
+                    .toList(),
+                assignments: teamAssignments,
+                openSong: (song) => context.push(
+                  '/cifra',
+                  extra: _songModelFromScheduleSong(song),
+                ),
+              ),
             ],
           ),
 
@@ -1637,13 +1615,18 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                     ),
                   ),
                   builder: (context, snapshot) {
-                    final rehearsed = snapshot.data?.rehearsed == true;
+                    final preparation =
+                        snapshot.data?.preparation ??
+                        const RehearsalPreparation();
+                    final rehearsed =
+                        preparation.forSong(songMap) == PreparationStage.ready;
                     return Row(
                       children: [
                         Expanded(
                           child: OutlinedButton.icon(
-                            onPressed: () =>
-                                _toggleRehearsed(songMap, rehearsed),
+                            onPressed: !snapshot.hasData || snapshot.hasError
+                                ? null
+                                : () => _toggleRehearsed(songMap, rehearsed),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: rehearsed
                                   ? Colors.greenAccent
@@ -1668,7 +1651,12 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                         const SizedBox(width: 8),
                         IconButton(
                           tooltip: 'Observação da música',
-                          onPressed: () => _showMySongObservation(songMap),
+                          onPressed: !snapshot.hasData || snapshot.hasError
+                              ? null
+                              : () => _showMySongObservation(
+                                  songMap,
+                                  preparation,
+                                ),
                           icon: const Icon(
                             Icons.sticky_note_2_outlined,
                             color: Colors.orangeAccent,

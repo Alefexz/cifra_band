@@ -11,6 +11,7 @@ import 'package:cifra_band/features/home/presentation/screens/onboarding_screen.
 import 'package:cifra_band/features/home/presentation/screens/home_screen.dart';
 import 'package:cifra_band/features/home/presentation/screens/create_ministry_screen.dart';
 import 'package:cifra_band/features/home/presentation/screens/event_detail_screen.dart';
+import 'package:cifra_band/features/home/presentation/screens/rehearsal_center_screen.dart';
 import 'package:cifra_band/features/home/presentation/screens/add_friend_screen.dart'; // ⚠️ IMPORTAÇÃO DA NOVA TELA AQUI
 import 'package:cifra_band/features/home/presentation/screens/cult_setlist_player_screen.dart';
 import 'package:cifra_band/features/home/presentation/screens/availability_screen.dart';
@@ -48,6 +49,11 @@ final appRouter = GoRouter(
   },
   routes: [
     GoRoute(
+      path: '/rehearsals',
+      pageBuilder: (context, state) =>
+          _buildFadeTransition(context, state, const RehearsalCenterScreen()),
+    ),
+    GoRoute(
       path: '/',
       pageBuilder: (context, state) =>
           _buildFadeTransition(context, state, const OnboardingScreen()),
@@ -81,7 +87,13 @@ final appRouter = GoRouter(
         return _buildFadeTransition(
           context,
           state,
-          EventDetailScreen(isAdmin: isAdmin, scheduleId: scheduleId),
+          EventDetailScreen(
+            isAdmin: isAdmin,
+            scheduleId: scheduleId,
+            initialTab: args['initialTab'] is int
+                ? args['initialTab'] as int
+                : 0,
+          ),
         );
       },
     ),

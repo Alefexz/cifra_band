@@ -1,6 +1,6 @@
 // lib/features/songs/data/datasources/song_scraper_datasource.dart
 
-import 'dart:async';
+import 'package:cifra_band/core/services/backend_warmup_service.dart';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -81,7 +81,7 @@ class SongScraperDatasource {
 
       if (snapshot.exists) {
         debugPrint('⚡ Encontrada no cache global — resposta instantânea.');
-        _wakeRenderInBackground(apiUrl);
+        BackendWarmupService.wake(reason: 'song_cache_hit');
         final data = snapshot.data()!;
         final originalKey = _normalizeKey(_clean(data['originalKey']));
         final shapeKey = _normalizeKey(_clean(data['shapeKey']));
@@ -213,25 +213,6 @@ class SongScraperDatasource {
     debugPrint('');
 
     return song;
-  }
-
-  static void _wakeRenderInBackground(String apiUrl) {
-    final uri = Uri.parse(apiUrl.replaceAll('+', '%20'));
-
-    unawaited(
-      (() async {
-        try {
-          final response = await http
-              .get(uri, headers: await _authHeaders())
-              .timeout(const Duration(seconds: 60));
-          debugPrint(
-            '🌐 Render acordado em segundo plano: HTTP ${response.statusCode}',
-          );
-        } catch (e) {
-          debugPrint('⚠️ Ping em segundo plano para o Render falhou: $e');
-        }
-      })(),
-    );
   }
 
   static Future<Map<String, String>> _authHeaders() async {

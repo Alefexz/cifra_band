@@ -3,7 +3,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
-      return request.auth != null;
+      return request.auth != null
+        && !exists(/databases/$(database)/documents/account_deletion_blocks/$(request.auth.uid));
     }
 
     function isSelf(userId) {
@@ -25,7 +26,7 @@ service cloud.firestore {
     }
 
     function sameChurch(churchId) {
-      return signedIn() && churchId is string && churchId == myChurchId();
+      return signedIn() && churchId is string && churchId.size() > 0 && churchId == myChurchId();
     }
 
     function isAdminForChurch(churchId) {
@@ -233,11 +234,27 @@ service cloud.firestore {
       allow delete: if isAdminForChurch(resource.data.church_id);
 
       match /rehearsal_status/{statusId} {
+        function validPreparation() {
+          let d = request.resource.data;
+          return d.keys().hasOnly(['uid', 'songKey', 'title', 'artist', 'rehearsed',
+              'note', 'updated_at', 'preparation', 'arrangementRevision'])
+            && d.rehearsed is bool
+            && d.songKey.size() > 0 && d.songKey.size() <= 400
+            && d.get('title', '') is string && d.get('title', '').size() <= 500
+            && d.get('artist', '') is string && d.get('artist', '').size() <= 500
+            && d.get('note', '') is string && d.get('note', '').size() <= 1500
+            && (!d.keys().hasAny(['preparation'])
+              || (d.preparation in ['pending', 'studying', 'ready', 'needsHelp']
+                && d.rehearsed == (d.preparation == 'ready')
+                && d.arrangementRevision is string
+                && d.arrangementRevision.matches('^[a-f0-9]{64}$')));
+        }
         allow read: if sameChurch(scheduleChurch(scheduleId));
         allow create, update: if sameChurch(scheduleChurch(scheduleId))
           && request.resource.data.uid == request.auth.uid
           && request.resource.data.songKey is string
           && statusId == request.auth.uid + '_' + request.resource.data.songKey
+          && validPreparation()
           && (!exists(/databases/$(database)/documents/schedules/$(scheduleId)/rehearsal_status/$(statusId))
             || resource.data.uid == request.auth.uid);
         allow delete: if isAdminForChurch(scheduleChurch(scheduleId));

@@ -20,6 +20,100 @@ before(async () => {
   });
 });
 after(async () => env?.cleanup());
+test('rehearsal board is isolated by ministry and rejects anonymous access', async () => {
+  for (const context of [env.unauthenticatedContext(), env.authenticatedContext('target'), env.authenticatedContext('stranger')]) {
+    await assertFails(getDocs(collection(context.firestore(), 'schedules/scale/rehearsal_status')));
+  }
+  await assertSucceeds(getDocs(collection(env.authenticatedContext('member').firestore(), 'schedules/scale/rehearsal_status')));
+  await env.withSecurityRulesDisabled(async context => {
+    await setDoc(doc(context.firestore(), 'users/empty-church'), {church_id: '', is_admin: false});
+    await setDoc(doc(context.firestore(), 'schedules/empty-church'), {church_id: ''});
+  });
+  await assertFails(getDoc(doc(env.authenticatedContext('empty-church').firestore(), 'schedules/empty-church')));
+});
+test('preparation writes validate identity, state, revision and payload limits', async () => {
+  const db = env.authenticatedContext('member').firestore();
+  const ref = doc(db, 'schedules/scale/rehearsal_status/member_preparation');
+  const valid = {uid: 'member', songKey: 'preparation', title: 'Teste', artist: 'Equipe',
+    rehearsed: false, preparation: 'needsHelp', arrangementRevision: 'a'.repeat(64), note: 'Ponte'};
+  await assertSucceeds(setDoc(ref, valid));
+  for (const patch of [{preparation: 'invalid'}, {rehearsed: true}, {arrangementRevision: 'fake'},
+    {note: 'x'.repeat(1501)}, {note: {private: true}}, {extra: 'injected'}, {uid: 'target'}]) {
+    await assertFails(updateDoc(ref, patch));
+  }
+  await assertSucceeds(updateDoc(ref, {preparation: 'ready', rehearsed: true}));
+  await assertSucceeds(updateDoc(ref, {note: 'Nova observacao'}));
+  const assert = require('node:assert/strict');
+  assert.equal((await getDoc(ref)).data().preparation, 'ready');
+  await assertFails(updateDoc(doc(env.authenticatedContext('target').firestore(), ref.path), {note: 'other ministry'}));
+  await env.withSecurityRulesDisabled(context => setDoc(doc(context.firestore(), 'users/leader'), {church_id: 'church', is_admin: true}));
+  await assertSucceeds(getDoc(doc(env.authenticatedContext('leader').firestore(), ref.path)));
+  await assertFails(updateDoc(doc(env.authenticatedContext('leader').firestore(), ref.path), {note: 'cannot impersonate'}));
+});
+test('legacy preparation remains readable and can migrate without losing notes', async () => {
+  const db = env.authenticatedContext('member').firestore();
+  const ref = doc(db, 'schedules/scale/rehearsal_status/member_legacy-preparation');
+  await assertSucceeds(setDoc(ref, {uid: 'member', songKey: 'legacy-preparation', rehearsed: false, note: 'Preservar'}));
+  await assertSucceeds(updateDoc(ref, {preparation: 'studying', rehearsed: false, arrangementRevision: 'b'.repeat(64)}));
+  const assert = require('node:assert/strict');
+  assert.equal((await getDoc(ref)).data().note, 'Preservar');
+  await env.withSecurityRulesDisabled(context => updateDoc(doc(context.firestore(), 'users/member'), {church_id: null}));
+  try { await assertFails(getDoc(ref)); } finally {
+    await env.withSecurityRulesDisabled(context => updateDoc(doc(context.firestore(), 'users/member'), {church_id: 'church'}));
+  }
+});
+test('contact endpoint resolves legacy cross-ministry friends without opening private profiles', async () => {
+  const assert = require('node:assert/strict');
+  const express = require('../../functions/node_modules/express');
+  const backendRequire = require('node:module').createRequire(require.resolve('../../functions/package.json'));
+  const { initializeApp, deleteApp } = backendRequire('firebase-admin/app');
+  const { getFirestore } = backendRequire('firebase-admin/firestore');
+  const { mountMemberActions } = require('../../functions/lib/member-actions');
+  assert.match(process.env.FIRESTORE_EMULATOR_HOST || '', /(?:127\.0\.0\.1|localhost):8080/);
+  await env.withSecurityRulesDisabled(async context => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'users/contact-owner'), { name: 'Owner', church_id: 'one', friends: ['contact-same', 'contact-cross'] });
+    await setDoc(doc(db, 'users/contact-same'), { name: 'Same', church_id: 'one', email: 'private' });
+    await setDoc(doc(db, 'users/contact-cross'), { name: 'Cross', church_id: 'two', email: 'private', fcmTokens: ['private'] });
+    await setDoc(doc(db, 'setlists/contact-sharing'), { title: 'Sharing', ownerId: 'contact-owner', sharedWith: [], songIds: ['song'] });
+    await setDoc(doc(db, 'setlists/contact-sharing/songs/song'), { title: 'Test', content: 'C G\nTest words', created_by: 'contact-owner' });
+  });
+  const adminApp = initializeApp({ projectId: 'demo-cifra-band' }, 'contact-test');
+  const app = express();
+  app.use(express.json());
+  mountMemberActions(app, {
+    authenticate: (req, res, next) => {
+      if (req.headers.authorization !== 'Bearer local-owner') return res.sendStatus(401);
+      req.firebaseUser = { uid: 'contact-owner' };
+      next();
+    },
+    limit: (_req, _res, next) => next(),
+    getAdmin: () => ({ firestore: () => getFirestore(adminApp) }),
+  });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise(resolve => server.once('listening', resolve));
+  try {
+    const url = `http://127.0.0.1:${server.address().port}/members/contacts`;
+    assert.equal((await fetch(url, { method: 'POST' })).status, 401);
+    const response = await fetch(url, { method: 'POST', headers: { Authorization: 'Bearer local-owner', 'Content-Type': 'application/json' }, body: JSON.stringify({ uid: 'target', ids: ['target'] }) });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { contacts: [{id: 'contact-same', name: 'Same'}, {id: 'contact-cross', name: 'Cross'}] });
+    const owner = env.authenticatedContext('contact-owner').firestore();
+    await assertFails(getDoc(doc(owner, 'users/contact-cross')));
+    await assertSucceeds(updateDoc(doc(owner, 'setlists/contact-sharing'), {sharedWith: ['contact-same', 'contact-cross']}));
+    for (const uid of ['contact-same', 'contact-cross']) {
+      const db = env.authenticatedContext(uid).firestore();
+      await assertSucceeds(getDoc(doc(db, 'setlists/contact-sharing')));
+      await assertSucceeds(getDoc(doc(db, 'setlists/contact-sharing/songs/song')));
+    }
+    await assertSucceeds(updateDoc(doc(owner, 'setlists/contact-sharing'), {sharedWith: []}));
+    await assertFails(getDoc(doc(env.authenticatedContext('contact-cross').firestore(), 'setlists/contact-sharing/songs/song')));
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await deleteApp(adminApp);
+  }
+});
 test('reproduces old failure: reading nonexistent schedule before setlist save is denied', async () => {
   await assertFails(getDoc(doc(env.authenticatedContext('owner').firestore(), 'schedules/owned')));
 });

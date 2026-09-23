@@ -95,7 +95,7 @@ void main() {
     },
   );
   test(
-    'offline retention removes evicted payloads without touching another account',
+    'offline retention preserves all intentional downloads',
     () async {
       SharedPreferences.setMockInitialValues({});
       final prefs = await SharedPreferences.getInstance();
@@ -116,8 +116,8 @@ void main() {
           ],
         );
       }
-      expect(await store.listSummaries(), hasLength(20));
-      expect(prefs.containsKey('offline_v2_a_0'), false);
+      expect(await store.listSummaries(), hasLength(21));
+      expect(prefs.containsKey('offline_v2_a_0'), true);
     },
   );
 }

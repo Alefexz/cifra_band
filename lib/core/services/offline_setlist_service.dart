@@ -112,6 +112,9 @@ class OfflineSetlistStore {
     required List<SongModel> songs,
   }) async {
     final savedAt = DateTime.now();
+    if (prefs.getBool('deleted_local_$uid') == true) {
+      throw StateError('Conta em exclusao.');
+    }
     final payload = {
       'uid': uid,
       'schema': 2,
@@ -230,10 +233,7 @@ class OfflineSetlistStore {
       summary,
       ...summaries.where((item) => item.scheduleId != summary.scheduleId),
     ];
-    for (final old in all.skip(20)) {
-      await prefs.remove(_setlistKey(old.scheduleId));
-    }
-    final updated = all.take(20).map(_summaryToJson).toList();
+    final updated = all.map(_summaryToJson).toList();
     if (!await prefs.setStringList(_indexKey, updated)) {
       throw StateError('Não foi possível registrar o download no aparelho.');
     }
