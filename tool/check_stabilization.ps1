@@ -17,6 +17,7 @@ $tests = @('test-member-actions.js', 'test-content.js', 'test-catalog-search.js'
 if (Test-Path 'test-youtube-background.js') { $tests += 'test-youtube-background.js' }
 if (Test-Path 'test-distribution.js') { $tests += 'test-distribution.js' }
 if (Test-Path 'test-account-deletion.js') { $tests += 'test-account-deletion.js' }
+if (Test-Path 'test-song-links.js') { $tests += 'test-song-links.js' }
 & node --test @tests *> "$root/build/stabilization/$Item-node.txt"
 $results.node = $LASTEXITCODE
 Pop-Location

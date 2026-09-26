@@ -17,6 +17,8 @@ import 'package:cifra_band/core/services/offline_setlist_service.dart';
 import 'package:cifra_band/core/services/rehearsal_service.dart';
 import 'package:cifra_band/core/services/rehearsal_preparation.dart';
 import '../widgets/rehearsal_panel.dart';
+import '../../../songs/domain/song_listening.dart';
+import '../../../songs/presentation/widgets/song_listening_sheet.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
@@ -307,6 +309,10 @@ class _EventDetailScreenState extends State<EventDetailScreen>
         .update({'approved_songs': updated});
   }
 
+  void _openScheduleSong(Map<String, dynamic> song) {
+    showSongListening(context, song, scheduleId: widget.scheduleId);
+  }
+
   Future<void> _castVote(Map<String, dynamic> song, bool isUpvote) async {
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final selected = (song[isUpvote ? 'upvotes' : 'downvotes'] as List? ?? [])
@@ -388,8 +394,12 @@ class _EventDetailScreenState extends State<EventDetailScreen>
         final bpm = s['bpm']?.toString().trim() ?? '';
         final note = s['rehearsalNotes']?.toString().trim() ?? '';
         buffer.writeln(
-          '${i + 1}. ${s['title']} - ${s['artist']} (Tom: ${s['key']})${bpm.isEmpty ? '' : ' - $bpm BPM'}',
+          '${i + 1}. ${s['title']} - ${s['artist']}${s['key'] == null ? '' : ' (Tom: ${s['key']})'}${bpm.isEmpty ? '' : ' - $bpm BPM'}',
         );
+        final reference = SongListening.reference(
+          s['referenceUrl']?.toString() ?? '',
+        );
+        if (reference != null) buffer.writeln('   Ouvir: $reference');
         if (note.isNotEmpty) buffer.writeln('   Obs: $note');
       }
     }
@@ -1069,10 +1079,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                     .map((song) => Map<String, dynamic>.from(song))
                     .toList(),
                 assignments: teamAssignments,
-                openSong: (song) => context.push(
-                  '/cifra',
-                  extra: _songModelFromScheduleSong(song),
-                ),
+                openSong: _openScheduleSong,
               ),
             ],
           ),
@@ -1107,6 +1114,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
   ) {
     final approvedSongModels = approved
         .whereType<Map>()
+        .where(SongListening.hasChord)
         .map((song) => _songModelFromScheduleSong(song))
         .toList();
 
@@ -1140,13 +1148,15 @@ class _EventDetailScreenState extends State<EventDetailScreen>
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 ElevatedButton.icon(
-                  onPressed: () => context.push(
-                    '/cult-setlist',
-                    extra: {
-                      'title': scheduleTitle,
-                      'songs': approvedSongModels,
-                    },
-                  ),
+                  onPressed: approvedSongModels.isEmpty
+                      ? null
+                      : () => context.push(
+                          '/cult-setlist',
+                          extra: {
+                            'title': scheduleTitle,
+                            'songs': approvedSongModels,
+                          },
+                        ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.blueAccent,
                     foregroundColor: Colors.white,
@@ -1157,16 +1167,18 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                   ),
                   icon: const Icon(Icons.playlist_play_rounded),
                   label: Text(
-                    'Tocar Setlist do Culto (${approvedSongModels.length})',
+                    'Tocar cifras do culto (${approvedSongModels.length})',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
                 const SizedBox(height: 10),
                 OutlinedButton.icon(
-                  onPressed: () => _saveApprovedSongsOffline(
-                    scheduleTitle,
-                    approvedSongModels,
-                  ),
+                  onPressed: approvedSongModels.isEmpty
+                      ? null
+                      : () => _saveApprovedSongsOffline(
+                          scheduleTitle,
+                          approvedSongModels,
+                        ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.green,
                     side: BorderSide(color: Colors.green.withOpacity(0.5)),
@@ -1177,7 +1189,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                   ),
                   icon: const Icon(Icons.download_done_rounded),
                   label: const Text(
-                    'Baixar Setlist Offline',
+                    'Baixar cifras offline',
                     style: TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -1452,7 +1464,8 @@ class _EventDetailScreenState extends State<EventDetailScreen>
   }) {
     final title = songMap['title'] ?? 'Música desconhecida';
     final artist = songMap['artist'] ?? 'Artista desconhecido';
-    final keyNote = songMap['key'] ?? 'C';
+    final hasChord = SongListening.hasChord(songMap);
+    final keyNote = songMap['key'] ?? '—';
     final suggestedBy = songMap['suggestedBy'] ?? 'Membro';
     final referenceUrl = songMap['referenceUrl']?.toString().trim() ?? '';
     final bpm = songMap['bpm']?.toString().trim() ?? '';
@@ -1467,10 +1480,7 @@ class _EventDetailScreenState extends State<EventDetailScreen>
 
     // ⚠️ AGORA A MÚSICA É CLICÁVEL E ABRE A CIFRA REAL!
     return GestureDetector(
-      onTap: () {
-        final songModel = _songModelFromScheduleSong(songMap);
-        context.push('/cifra', extra: songModel);
-      },
+      onTap: () => _openScheduleSong(songMap),
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
@@ -1497,14 +1507,19 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Center(
-                      child: Text(
-                        keyNote,
-                        style: const TextStyle(
-                          color: Colors.blueAccent,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ),
+                      child: !hasChord
+                          ? const Icon(
+                              Icons.headphones,
+                              color: Colors.blueAccent,
+                            )
+                          : Text(
+                              keyNote,
+                              style: const TextStyle(
+                                color: Colors.blueAccent,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
                     ),
                   ),
                   const SizedBox(width: 16),
@@ -1564,7 +1579,8 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                 ],
               ),
 
-              if (referenceUrl.isNotEmpty ||
+              if (!hasChord ||
+                  referenceUrl.isNotEmpty ||
                   bpm.isNotEmpty ||
                   notes.isNotEmpty) ...[
                 const SizedBox(height: 12),
@@ -1572,6 +1588,16 @@ class _EventDetailScreenState extends State<EventDetailScreen>
                   spacing: 8,
                   runSpacing: 8,
                   children: [
+                    if (!hasChord)
+                      ActionChip(
+                        avatar: const Icon(Icons.headphones),
+                        label: const Text('Ouvir louvor'),
+                        onPressed: () => showSongListening(
+                          context,
+                          songMap,
+                          scheduleId: widget.scheduleId,
+                        ),
+                      ),
                     if (referenceUrl.isNotEmpty)
                       ActionChip(
                         avatar: const Icon(Icons.play_circle_outline_rounded),

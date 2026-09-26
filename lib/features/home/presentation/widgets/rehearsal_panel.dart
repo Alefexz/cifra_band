@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../../../songs/domain/song_listening.dart';
 import 'package:cifra_band/core/services/rehearsal_preparation.dart';
 import 'package:cifra_band/core/services/rehearsal_service.dart';
 
@@ -152,8 +153,14 @@ class RehearsalBoard extends StatelessWidget {
               ),
               subtitle: Text('$artist · Tom: $tone'),
               trailing: IconButton(
-                tooltip: 'Abrir cifra',
-                icon: const Icon(Icons.library_music_outlined),
+                tooltip: SongListening.hasChord(song)
+                    ? 'Abrir cifra'
+                    : 'Ouvir louvor',
+                icon: Icon(
+                  SongListening.hasChord(song)
+                      ? Icons.library_music_outlined
+                      : Icons.headphones,
+                ),
                 onPressed: () => openSong(song),
               ),
             ),

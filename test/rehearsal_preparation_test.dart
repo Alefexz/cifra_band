@@ -15,7 +15,7 @@ void main() {
     'originalKey': 'D',
     'capo': '2',
     'shapeKey': 'C',
-    'content': 'C G\nTexto de teste',
+    'content': 'C G\nUma letra para o teste\nOutra frase para acompanhar',
   };
   RehearsalPreparation ready() => RehearsalPreparation(
     stage: PreparationStage.ready,
@@ -136,6 +136,33 @@ void main() {
     await tester.tap(find.byTooltip('Abrir cifra'));
     expect(opened, song);
   });
+  testWidgets(
+    'listening-only repertoire opens listening action without inventing a key',
+    (tester) async {
+      final listening = <String, dynamic>{
+        'title': 'Louvor novo',
+        'artist': 'Equipe',
+        'kind': 'listening',
+      };
+      Map<String, dynamic>? opened;
+      await tester.pumpWidget(
+        host(
+          RehearsalBoard(
+            songs: [listening],
+            members: const [],
+            statuses: const {},
+            currentUid: '',
+            openSong: (value) => opened = value,
+            edit: (_, _) {},
+          ),
+        ),
+      );
+      expect(find.byTooltip('Abrir cifra'), findsNothing);
+      expect(find.textContaining('Tom: Não informado'), findsOneWidget);
+      await tester.tap(find.byTooltip('Ouvir louvor'));
+      expect(opened, listening);
+    },
+  );
   testWidgets('empty repertoire is explicit', (tester) async {
     await tester.pumpWidget(
       host(

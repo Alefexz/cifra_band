@@ -2,13 +2,13 @@
 
 import 'dart:async';
 import 'package:cifra_band/core/services/member_actions_service.dart';
-import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
+import '../../../home/data/music_search_service.dart';
+import '../widgets/song_suggestion_sheet.dart';
 import 'package:cifra_band/core/services/api_notification.dart';
 import 'package:cifra_band/core/services/app_diagnostics_service.dart';
 import '../../domain/entities/song_destination.dart';
@@ -37,6 +37,8 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
   bool _isSaving = false;
   String? _loadingTrack;
   List<dynamic> _songs = [];
+  final _musicSearch = MusicSearchService();
+  int _searchRevision = 0;
   SongEntity? _songReady;
 
   String _selectedKey = 'C';
@@ -79,6 +81,7 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
   ];
 
   Future<void> _performSearch(String query) async {
+    final revision = ++_searchRevision;
     final search = query.trim();
     if (search.isEmpty) {
       if (!mounted) return;
@@ -95,27 +98,11 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
       _songReady = null;
     });
     try {
-      final url = Uri.https('itunes.apple.com', '/search', {
-        'term': search,
-        'entity': 'song',
-        'limit': '15',
-        'country': 'br',
-        'media': 'music',
-      });
-      final response = await http
-          .get(url, headers: const {'Accept': 'application/json'})
-          .timeout(const Duration(seconds: 10));
-
-      if (response.statusCode != 200)
-        throw Exception('Apple Search retornou ${response.statusCode}.');
-
-      final dynamic decoded = json.decode(response.body);
-      final dynamic results = decoded['results'];
-
-      if (!mounted) return;
-      setState(() => _songs = results);
+      final result = await _musicSearch.search(search);
+      if (!mounted || revision != _searchRevision) return;
+      setState(() => _songs = result.songs);
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || revision != _searchRevision) return;
       setState(() => _songs = []);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -124,13 +111,14 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
         ),
       );
     } finally {
-      if (mounted) {
+      if (mounted && revision == _searchRevision) {
         setState(() => _isLoading = false);
       }
     }
   }
 
   void _onSearchChanged(String query) {
+    _searchRevision++;
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
       _performSearch(query);
@@ -138,7 +126,15 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
     setState(() {});
   }
 
-  Future<void> _onSongSelected(String track, String artist) async {
+  Future<void> _onSongSelected(
+    String track,
+    String artist, {
+    bool withChord = false,
+  }) async {
+    if (widget.destination.isSchedule && !withChord) {
+      await _suggestLouvor(title: track, artist: artist);
+      return;
+    }
     if (_loadingTrack != null) return;
     if (!mounted) return;
     setState(() => _loadingTrack = track);
@@ -184,6 +180,71 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
           duration: const Duration(seconds: 6),
         ),
       );
+    }
+  }
+
+  Future<void> _suggestLouvor({String title = '', String artist = ''}) async {
+    final saved = await showModalBottomSheet<Object>(
+      context: context,
+      isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
+      builder: (_) => SongSuggestionSheet(
+        title: title,
+        artist: artist,
+        save: (song) async {
+          await MemberActionsService.send('schedule', {
+            'scheduleId': widget.destination.id,
+            'action': 'suggest',
+            'song': song,
+          });
+          try {
+            final schedule = await FirebaseFirestore.instance
+                .collection('schedules')
+                .doc(widget.destination.id)
+                .get();
+            final user = FirebaseAuth.instance.currentUser;
+            final profile = user == null
+                ? null
+                : await FirebaseFirestore.instance
+                      .collection('users')
+                      .doc(user.uid)
+                      .get();
+            final team = (schedule.data()?['team_assignments'] as List? ?? [])
+                .whereType<Map>()
+                .map((item) => item['uid'])
+                .whereType<String>()
+                .toSet()
+                .toList();
+            await ApiNotification.notificarMusicaNova(
+              team,
+              song['title']!,
+              profile?.data()?['name'] ?? 'Membro',
+              widget.destination.id,
+            );
+          } catch (error) {
+            AppDiagnosticsService.log(
+              'Sugestão salva; notificação falhou',
+              level: 'warning',
+              error: error,
+            );
+          }
+        },
+      ),
+    );
+    if (saved is Map && mounted) {
+      await _onSongSelected(
+        saved['title'] as String,
+        saved['artist'] as String,
+        withChord: true,
+      );
+      return;
+    }
+    if (saved == true && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Louvor sugerido com sucesso!')),
+      );
+      context.pop();
     }
   }
 
@@ -345,6 +406,7 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _musicSearch.close();
     _searchController.dispose();
     _referenceUrlController.dispose();
     _bpmController.dispose();
@@ -390,6 +452,16 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildSearchBar(),
+        if (widget.destination.isSchedule)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: TextButton.icon(
+              onPressed: () =>
+                  _suggestLouvor(title: _searchController.text.trim()),
+              icon: const Icon(Icons.edit_note),
+              label: const Text('Informar louvor manualmente'),
+            ),
+          ),
         const SizedBox(height: 20),
         Expanded(
           child: _isLoading
@@ -435,6 +507,7 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
                     onPressed: () {
                       _searchController.clear();
                       _debounce?.cancel();
+                      _searchRevision++;
                       setState(() {
                         _songs = [];
                         _isLoading = false;
@@ -487,7 +560,9 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              'Pesquise uma música para baixar a cifra\ne sugerir para o repertório.',
+              widget.destination.isSchedule
+                  ? 'Nenhuma sugestão selecionada.'
+                  : 'Nenhuma cifra selecionada.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.grey.shade500,
@@ -638,9 +713,18 @@ class _AddSongScreenState extends ConsumerState<AddSongScreen> {
                           strokeWidth: 2,
                         ),
                       )
-                    : const Icon(Icons.download_rounded, size: 20),
+                    : Icon(
+                        widget.destination.isSchedule
+                            ? Icons.add
+                            : Icons.download_rounded,
+                        size: 20,
+                      ),
                 label: Text(
-                  isLoadingThis ? 'Buscando cifra...' : 'Revisar Cifra',
+                  isLoadingThis
+                      ? 'Buscando cifra...'
+                      : widget.destination.isSchedule
+                      ? 'Sugerir louvor'
+                      : 'Revisar Cifra',
                   style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
                 style: ElevatedButton.styleFrom(
