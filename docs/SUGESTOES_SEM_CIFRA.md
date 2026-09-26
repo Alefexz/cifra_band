@@ -1,6 +1,17 @@
 # Sugestoes de louvor sem cifra
 
-Versao preparada: 1.6.1+29, canal direto de testes da igreja.
+Versao publicada: 1.6.1+29, canal direto de testes da igreja.
+
+## Publicacao verificada em 26/09/2026
+
+- GitHub: https://github.com/Alefexz/cifra_band/releases/tag/v1.6.1
+- Commit do app: 88f944a. Backend: 43f8fa7 (funcionalidade), 164252f (manifesto).
+- APK: 68052014 bytes, SHA-256 b047b8efd6de5418e4da8d497e5fc74c2aca3a65207b61caf30a8cc24b5f52ca.
+- Assinatura beta preservada: 9012b9d3b3f2f2d81305d1f55efc23ab2ad4adf3d09aa3e1d77f89f0f05f5d16.
+- aapt confirmou pacote br.com.cifraband.cifra_band, versao 1.6.1, build 29, target SDK 36.
+- Download publico HTTP 200 e digest do asset GitHub iguais ao artefato local.
+- Render /app-version confirmou build 29, minimumBuild 27, updateRequired false, hash e tamanho corretos as 14:07:54 UTC.
+- Nenhuma publicacao Play ou instalacao USB. Entrega individual de push e instalacao fisica nao verificadas.
 
 ## Fluxo
 
