@@ -1,4 +1,5 @@
 import java.util.Properties
+import com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension
 
 plugins {
     id("com.android.application")
@@ -76,6 +77,11 @@ android {
         release {
             // Flavor-specific signing. Play never inherits the direct beta key.
             signingConfig = null
+            if (System.getenv("CIFRABAND_SKIP_MAPPING_UPLOAD") == "true") {
+                configure<CrashlyticsExtension> {
+                    mappingFileUploadEnabled = false
+                }
+            }
         }
     }
 }

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:device_info_plus/device_info_plus.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_diagnostics_service.dart';
 import 'apk_downloader.dart';
+import 'apk_artifact.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AppUpdateInfo {
@@ -23,6 +25,7 @@ class AppUpdateInfo {
     required this.releaseNotes,
     this.apkSha256,
     this.apkBytes,
+    this.apkVariants = const {},
   });
 
   final String latestVersion;
@@ -33,6 +36,7 @@ class AppUpdateInfo {
   final String releaseNotes;
   final String? apkSha256;
   final int? apkBytes;
+  final Map<String, dynamic> apkVariants;
 
   bool shouldShowFor(int currentBuild) {
     return latestBuild > currentBuild || minimumBuild > currentBuild;
@@ -52,6 +56,9 @@ class AppUpdateInfo {
       releaseNotes: '${json['releaseNotes'] ?? ''}'.trim(),
       apkSha256: json['apkSha256'] as String?,
       apkBytes: int.tryParse('${json['apkBytes']}'),
+      apkVariants: json['apkVariants'] is Map<String, dynamic>
+          ? json['apkVariants'] as Map<String, dynamic>
+          : const {},
     );
   }
 
@@ -447,11 +454,30 @@ class AppUpdateService {
   static Future<File> _downloadApk({
     required AppUpdateInfo updateInfo,
     required ValueChanged<double> onProgress,
+    void Function(int, int?, double)? onTransfer,
   }) async {
-    final uri = await _resolveApkDownloadUri(updateInfo);
+    ApkArtifact? artifact;
+    if (Platform.isAndroid && updateInfo.apkVariants.isNotEmpty) {
+      try {
+        final device = await DeviceInfoPlugin().androidInfo.timeout(
+          const Duration(seconds: 3),
+        );
+        artifact = ApkArtifact.select(
+          updateInfo.apkVariants,
+          device.supportedAbis,
+        );
+      } catch (_) {
+        // Older/unknown devices keep the compatible universal APK.
+      }
+    }
+    final uri = artifact?.url ?? await _resolveApkDownloadUri(updateInfo);
     final tempDirectory = await getTemporaryDirectory();
+    final hash = artifact?.sha256 ?? updateInfo.apkSha256 ?? '';
+    final suffix = RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(hash)
+        ? '-${hash.substring(0, 12).toLowerCase()}'
+        : '';
     final apkFile = File(
-      '${tempDirectory.path}/cifra-band-${updateInfo.latestVersion}-build-${updateInfo.latestBuild}.apk',
+      '${tempDirectory.path}/cifra-band-${updateInfo.latestVersion}-build-${updateInfo.latestBuild}$suffix.apk',
     );
 
     return ApkDownloader.download(
@@ -459,8 +485,9 @@ class AppUpdateService {
       uri: uri,
       destination: apkFile,
       onProgress: onProgress,
-      expectedSha256: updateInfo.apkSha256,
-      expectedBytes: updateInfo.apkBytes,
+      onTransfer: onTransfer,
+      expectedSha256: artifact?.sha256 ?? updateInfo.apkSha256,
+      expectedBytes: artifact?.bytes ?? updateInfo.apkBytes,
     );
   }
 
@@ -545,6 +572,7 @@ class _ApkDownloadDialogState extends State<_ApkDownloadDialog> {
   bool _failed = false;
   bool _started = false;
   File? _downloaded;
+  String? _transfer;
 
   @override
   void initState() {
@@ -561,6 +589,17 @@ class _ApkDownloadDialogState extends State<_ApkDownloadDialog> {
           _downloaded ??
           await AppUpdateService._downloadApk(
             updateInfo: widget.updateInfo,
+            onTransfer: (received, total, speed) {
+              if (!mounted) return;
+              final downloadedMb = (received / 1048576).toStringAsFixed(1);
+              final totalMb = total == null
+                  ? ''
+                  : ' de ${(total / 1048576).toStringAsFixed(1)}';
+              final rate = speed >= 1048576
+                  ? '${(speed / 1048576).toStringAsFixed(1)} MB/s'
+                  : '${(speed / 1024).toStringAsFixed(0)} KB/s';
+              _transfer = '$downloadedMb$totalMb MB • $rate';
+            },
             onProgress: (progress) {
               if (!mounted) return;
               setState(() {
@@ -626,6 +665,10 @@ class _ApkDownloadDialogState extends State<_ApkDownloadDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(_status),
+            if (_transfer != null) ...[
+              const SizedBox(height: 8),
+              Text(_transfer!, style: Theme.of(context).textTheme.bodySmall),
+            ],
             const SizedBox(height: 18),
             ClipRRect(
               borderRadius: BorderRadius.circular(999),
@@ -660,6 +703,7 @@ class _ApkDownloadDialogState extends State<_ApkDownloadDialog> {
                   _failed = false;
                   _started = false;
                   _progress = 0;
+                  _transfer = null;
                   _status = 'Preparando download...';
                 });
                 unawaited(_startDownload());

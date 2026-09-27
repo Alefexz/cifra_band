@@ -9,9 +9,13 @@ class DownloadClient extends http.BaseClient {
   DownloadClient(this.response);
   final http.StreamedResponse response;
   bool closed = false;
+  http.BaseRequest? request;
   @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) async =>
-      response;
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    this.request = request;
+    return response;
+  }
+
   @override
   void close() {
     closed = true;
@@ -27,6 +31,134 @@ void main() {
     await directory.delete(recursive: true);
   });
   final bytes = [0x50, 0x4b, 3, 4, 10, 20, 30, 40];
+  test('resumes a known artifact after interrupted transfer', () async {
+    final file = File('${directory.path}/resume.apk');
+    final hash = sha256.convert(bytes).toString();
+    final first = DownloadClient(
+      http.StreamedResponse(
+        Stream.value(bytes.sublist(0, 4)),
+        200,
+        contentLength: bytes.length,
+      ),
+    );
+    await expectLater(
+      ApkDownloader.download(
+        client: first,
+        uri: Uri.parse('https://example.test/app.apk'),
+        destination: file,
+        onProgress: (_) {},
+        expectedBytes: bytes.length,
+        expectedSha256: hash,
+      ),
+      throwsA(isA<http.ClientException>()),
+    );
+    expect(await file.length(), 4);
+    final second = DownloadClient(
+      http.StreamedResponse(
+        Stream.value(bytes.sublist(4)),
+        206,
+        contentLength: 4,
+        headers: {'content-range': 'bytes 4-7/8'},
+      ),
+    );
+    await ApkDownloader.download(
+      client: second,
+      uri: Uri.parse('https://example.test/app.apk'),
+      destination: file,
+      onProgress: (_) {},
+      expectedBytes: bytes.length,
+      expectedSha256: hash,
+    );
+    expect(second.request!.headers['Range'], 'bytes=4-');
+    expect(await file.readAsBytes(), bytes);
+  });
+  test(
+    'server ignoring Range replaces partial file instead of appending',
+    () async {
+      final file = File('${directory.path}/restart.apk');
+      await file.writeAsBytes(bytes.sublist(0, 4));
+      final client = DownloadClient(
+        http.StreamedResponse(
+          Stream.value(bytes),
+          200,
+          contentLength: bytes.length,
+        ),
+      );
+      await ApkDownloader.download(
+        client: client,
+        uri: Uri.parse('https://example.test/app.apk'),
+        destination: file,
+        onProgress: (_) {},
+        expectedBytes: bytes.length,
+        expectedSha256: sha256.convert(bytes).toString(),
+      );
+      expect(await file.readAsBytes(), bytes);
+    },
+  );
+  test('invalid resume range is discarded', () async {
+    final file = File('${directory.path}/bad-range.apk');
+    await file.writeAsBytes(bytes.sublist(0, 4));
+    final client = DownloadClient(
+      http.StreamedResponse(
+        Stream.value(bytes.sublist(4)),
+        206,
+        headers: {'content-range': 'bytes 2-7/8'},
+      ),
+    );
+    await expectLater(
+      ApkDownloader.download(
+        client: client,
+        uri: Uri.parse('https://example.test/app.apk'),
+        destination: file,
+        onProgress: (_) {},
+        expectedBytes: bytes.length,
+        expectedSha256: sha256.convert(bytes).toString(),
+      ),
+      throwsFormatException,
+    );
+    expect(await file.exists(), false);
+  });
+  test('verified complete file avoids a second network download', () async {
+    final file = File('${directory.path}/ready.apk');
+    await file.writeAsBytes(bytes);
+    final client = DownloadClient(http.StreamedResponse(Stream.value([]), 503));
+    await ApkDownloader.download(
+      client: client,
+      uri: Uri.parse('https://example.test/app.apk'),
+      destination: file,
+      onProgress: (_) {},
+      expectedBytes: bytes.length,
+      expectedSha256: sha256.convert(bytes).toString(),
+    );
+    expect(client.request, isNull);
+    expect(client.closed, true);
+  });
+  test(
+    'progress callbacks are throttled but finish only after verification',
+    () async {
+      final data = [...bytes, ...List.filled(10000, 0)];
+      var calls = 0;
+      var finalProgress = 0.0;
+      await ApkDownloader.download(
+        client: DownloadClient(
+          http.StreamedResponse(
+            Stream.fromIterable(data.map((b) => [b])),
+            200,
+            contentLength: data.length,
+          ),
+        ),
+        uri: Uri.parse('https://example.test/app.apk'),
+        destination: File('${directory.path}/chunks.apk'),
+        expectedSha256: sha256.convert(data).toString(),
+        onProgress: (value) {
+          calls++;
+          finalProgress = value;
+        },
+      );
+      expect(calls, lessThan(100));
+      expect(finalProgress, 1);
+    },
+  );
   test(
     'validates length and hash and closes client on successful APK',
     () async {

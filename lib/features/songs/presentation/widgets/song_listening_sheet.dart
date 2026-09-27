@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/services/member_actions_service.dart';
 import '../../data/models/song_model.dart';
+import '../../data/datasources/song_scraper_datasource.dart';
 import '../../domain/entities/song_entity.dart';
 import '../../domain/song_listening.dart';
 import '../providers/song_providers.dart';
@@ -75,7 +76,7 @@ class _SongListeningSheetState extends State<SongListeningSheet> {
   @override
   void initState() {
     super.initState();
-    for (final key in ['cifra', 'youtube', 'spotify']) {
+    for (final key in ['cifra', 'youtube']) {
       _load(key);
     }
   }
@@ -87,7 +88,7 @@ class _SongListeningSheetState extends State<SongListeningSheet> {
       Map<String, dynamic> result;
       if (key == 'cifra') {
         final chord = await widget.loadChord().timeout(
-          const Duration(seconds: 35),
+          const Duration(seconds: 60),
         );
         if (!SongListening.hasChord({'content': chord.content})) {
           throw StateError('incomplete_chord');
@@ -104,8 +105,15 @@ class _SongListeningSheetState extends State<SongListeningSheet> {
         }
       }
       if (mounted) setState(() => _results[key] = result);
-    } catch (_) {
-      if (mounted) setState(() => _results[key] = {'status': 'unavailable'});
+    } catch (error) {
+      if (mounted) {
+        setState(
+          () => _results[key] = {
+            'status': 'unavailable',
+            if (error is SongSearchException) 'message': error.message,
+          },
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy.remove(key));
     }
@@ -143,15 +151,13 @@ class _SongListeningSheetState extends State<SongListeningSheet> {
         children: [
           Text(
             '${widget.song['title']}',
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.titleLarge,
           ),
           Text('${widget.song['artist']}'),
           const SizedBox(height: 16),
-          for (final entry in {
-            'cifra': 'Cifra',
-            'youtube': 'YouTube',
-            'spotify': 'Spotify',
-          }.entries)
+          for (final entry in {'cifra': 'Cifra', 'youtube': 'YouTube'}.entries)
             ListTile(
               leading: Icon(
                 entry.key == 'cifra'
@@ -167,7 +173,8 @@ class _SongListeningSheetState extends State<SongListeningSheet> {
                           'Disponível')
                     : _results[entry.key]?['status'] == 'configuration_required'
                     ? 'Serviço ainda não configurado'
-                    : 'Referência não confirmada',
+                    : _results[entry.key]?['message']?.toString() ??
+                          'Referência não confirmada',
               ),
               trailing: _busy.contains(entry.key)
                   ? const SizedBox(
