@@ -11,6 +11,7 @@ import '../../../../core/services/app_diagnostics_service.dart';
 import '../../domain/transposer_engine.dart';
 import '../../domain/song_content_quality.dart';
 import '../models/song_model.dart';
+import 'direct_chord_source.dart';
 
 class SongSearchException implements Exception {
   const SongSearchException({
@@ -129,6 +130,11 @@ class SongScraperDatasource {
       );
     }
 
+    if (track.toLowerCase().contains('medley')) {
+      final direct = await _tryDirectSource(artist, track, docId);
+      if (direct != null) return direct;
+    }
+
     // ============================================================
     // 2. BUSCA NO SERVIDOR RENDER
     // ============================================================
@@ -206,6 +212,12 @@ class SongScraperDatasource {
           context: {'artist': artist, 'track': track},
         );
       }
+      if (e is! SongSearchException ||
+          e.statusCode == 404 ||
+          (e.statusCode != null && e.statusCode! >= 500)) {
+        final direct = await _tryDirectSource(artist, track, docId);
+        if (direct != null) return direct;
+      }
       rethrow;
     }
 
@@ -213,6 +225,26 @@ class SongScraperDatasource {
     debugPrint('');
 
     return song;
+  }
+
+  static Future<SongModel?> _tryDirectSource(
+    String artist,
+    String track,
+    String docId,
+  ) async {
+    final source = DirectChordSource();
+    try {
+      final song = await source.find(artist: artist, track: track, id: docId);
+      if (song != null) {
+        AppDiagnosticsService.log(
+          'Cifra completa encontrada diretamente no aparelho',
+          context: {'artist': artist, 'track': track, 'source': 'los_acordes'},
+        );
+      }
+      return song;
+    } finally {
+      source.close();
+    }
   }
 
   static Future<Map<String, String>> _authHeaders() async {

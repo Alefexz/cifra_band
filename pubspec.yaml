@@ -3,7 +3,7 @@ description: "A new Flutter project."
 
 publish_to: 'none'
 
-version: 1.6.2+30
+version: 1.6.3+31
 
 environment:
   sdk: ^3.11.4
@@ -23,6 +23,7 @@ dependencies:
 
   # Internet / APIs
   http: ^1.6.0
+  html: ^0.15.7
 
   # Navegação
   go_router: ^17.4.0
